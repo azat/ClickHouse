@@ -412,12 +412,17 @@ void HashedDictionary::loadData()
     if (!source_ptr->hasUpdateField())
     {
         auto stream = source_ptr->loadAll();
-        stream->readPrefix();
+        try {
+            stream->readPrefix();
 
-        while (const auto block = stream->read())
-            blockToAttributes(block);
+            while (const auto block = stream->read())
+                blockToAttributes(block);
 
-        stream->readSuffix();
+            stream->readSuffix();
+        } catch (...) {
+            stream->cancel(true);
+            throw;
+        }
     }
     else
         updateData();
