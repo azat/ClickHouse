@@ -1753,8 +1753,12 @@ protected:
         {
             String query;
             query += "SELECT " + fields + " FROM " + getQuotedTable(from_table);
-            /// TODO: Bad, it is better to rewrite with ASTLiteral(partition_key_field)
-            query += " WHERE (" + queryToString(task_table.engine_push_partition_key_ast) + " = (" + task_partition.name + " AS partition_key))";
+            query += " WHERE ";
+            {
+                /// TODO: Bad, it is better to rewrite with ASTLiteral(partition_key_field)
+                query += "(" + queryToString(task_table.engine_push_partition_key_ast) + " = (" + task_partition.name + " AS partition_key))";
+                query += " AND (_part LIKE concat(toString(partition_key), '_%'))";
+            }
             if (!task_table.where_condition_str.empty())
                 query += " AND (" + task_table.where_condition_str + ")";
             if (!limit.empty())
