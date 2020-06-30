@@ -325,6 +325,7 @@ bool PerfEventsCounters::processThreadLocalChanges(const std::string & needed_ev
     // >=1: Disallow CPU event access by users without CAP_SYS_ADMIN
     // >=2: Disallow kernel profiling by users without CAP_SYS_ADMIN
     // >=3: Disallow all event access by users without CAP_SYS_ADMIN
+    // CAP_PERFMON linux 5.8+
     Int32 perf_event_paranoid = 0;
     std::ifstream paranoid_file("/proc/sys/kernel/perf_event_paranoid");
     paranoid_file >> perf_event_paranoid;
