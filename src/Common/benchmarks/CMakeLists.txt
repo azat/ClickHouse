@@ -1,3 +1,9 @@
 add_executable(atomic_benchmark atomic_benchmark.cpp)
 set_source_files_properties(atomic_benchmark.cpp PROPERTIES COMPILE_FLAGS -Wno-deprecated-volatile)
 target_link_libraries(atomic_benchmark PRIVATE benchmark::benchmark_main)
+
+# userspace_rcu_benchmark
+add_executable(userspace_rcu_bp_benchmark userspace_rcu_benchmark.cpp)
+target_link_libraries(userspace_rcu_bp_benchmark PRIVATE benchmark::benchmark_main urcu::bp)
+add_executable(userspace_rcu_memb_benchmark userspace_rcu_benchmark.cpp)
+target_link_libraries(userspace_rcu_memb_benchmark PRIVATE benchmark::benchmark_main urcu::memb)
