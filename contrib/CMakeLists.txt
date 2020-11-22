@@ -235,6 +235,15 @@ elseif(GTEST_SRC_DIR)
     target_compile_definitions(gtest INTERFACE GTEST_HAS_POSIX_RE=0)
 endif()
 
+if (USE_INTERNAL_BENCHMARK)
+    # set(GOOGLETEST_PATH ${ClickHouse_SOURCE_DIR}/contrib/googletest/googletest)
+    set(BENCHMARK_ENABLE_TESTING OFF)
+    add_subdirectory(${ClickHouse_SOURCE_DIR}/contrib/benchmark ${CMAKE_CURRENT_BINARY_DIR}/benchmark)
+    foreach (target benchmark benchmark_main)
+        target_compile_options(${target} INTERFACE -Wno-suggest-override -Wno-used-but-marked-unused)
+    endforeach()
+endif()
+
 if (USE_EMBEDDED_COMPILER AND USE_INTERNAL_LLVM_LIBRARY)
     # ld: unknown option: --color-diagnostics
     if (APPLE)

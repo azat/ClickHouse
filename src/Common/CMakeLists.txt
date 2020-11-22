@@ -5,4 +5,5 @@ add_subdirectory(StringUtils)
 
 if (ENABLE_TESTS)
     add_subdirectory (tests)
+    add_subdirectory (benchmarks)
 endif ()
