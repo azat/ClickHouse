@@ -21,7 +21,8 @@ void dumpToArrayColumns(const Counters & counters, DB::IColumn * column_names_, 
 
     for (Event event = 0; event < Counters::num_counters; ++event)
     {
-        UInt64 value = counters[event].load(std::memory_order_relaxed);
+        /// TODO: use uatomic_read()
+        UInt64 value = counters[event];
 
         if (nonzero_only && 0 == value)
             continue;

@@ -115,7 +115,8 @@ void MetricLog::metricThreadFunction()
             elem.profile_events.resize(ProfileEvents::end());
             for (size_t i = 0, end = ProfileEvents::end(); i < end; ++i)
             {
-                const ProfileEvents::Count new_value = ProfileEvents::global_counters[i].load(std::memory_order_relaxed);
+                /// TODO: use uatomic_read()
+                const ProfileEvents::Count new_value = ProfileEvents::global_counters[i];
                 auto & old_value = prev_profile_events[i];
                 elem.profile_events[i] = new_value - old_value;
                 old_value = new_value;

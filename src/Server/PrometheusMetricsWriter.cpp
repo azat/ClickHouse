@@ -52,7 +52,8 @@ void PrometheusMetricsWriter::write(WriteBuffer & wb) const
     {
         for (size_t i = 0, end = ProfileEvents::end(); i < end; ++i)
         {
-            const auto counter = ProfileEvents::global_counters[i].load(std::memory_order_relaxed);
+            /// TODO: use uatomic_read()
+            const auto counter = ProfileEvents::global_counters[i];
 
             std::string metric_name{ProfileEvents::getName(static_cast<ProfileEvents::Event>(i))};
             std::string metric_doc{ProfileEvents::getDocumentation(static_cast<ProfileEvents::Event>(i))};

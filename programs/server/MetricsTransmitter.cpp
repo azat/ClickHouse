@@ -89,7 +89,8 @@ void MetricsTransmitter::transmit(std::vector<ProfileEvents::Count> & prev_count
     {
         for (size_t i = 0, end = ProfileEvents::end(); i < end; ++i)
         {
-            const auto counter = ProfileEvents::global_counters[i].load(std::memory_order_relaxed);
+            /// TODO: use uatomic_read()
+            const auto counter = ProfileEvents::global_counters[i];
             const auto counter_increment = counter - prev_counters[i];
             prev_counters[i] = counter;
 
@@ -102,7 +103,8 @@ void MetricsTransmitter::transmit(std::vector<ProfileEvents::Count> & prev_count
     {
         for (size_t i = 0, end = ProfileEvents::end(); i < end; ++i)
         {
-            const auto counter = ProfileEvents::global_counters[i].load(std::memory_order_relaxed);
+            /// TODO: use uatomic_read()
+            const auto counter = ProfileEvents::global_counters[i];
             std::string key{ProfileEvents::getName(static_cast<ProfileEvents::Event>(i))};
             key_vals.emplace_back(profile_events_cumulative_path_prefix + key, counter);
         }
