@@ -120,6 +120,20 @@ if (NOT ENABLE_SSL)
     list (REMOVE_ITEM clickhouse_common_io_headers Common/OpenSSLHelpers.h)
 endif ()
 
+# ProfileEvents via RCU
+#
+# NOTE: that urcu::bp export some flags as INTERFACE that is not a good idea to
+# add to all of the files fro clckhouse_common_io, that's why it has been moved
+# into separate library.
+list (REMOVE_ITEM clickhouse_common_io_sources Common/ProfileEvents.cpp)
+list (REMOVE_ITEM clickhouse_common_io_sources Common/ProfileEvents.h)
+add_library(clickhouse_common_profile OBJECT Common/ProfileEvents.cpp Common/ProfileEvents.h)
+target_link_libraries (clickhouse_common_profile PRIVATE urcu::bp)
+target_include_directories (clickhouse_common_profile PUBLIC
+    ${ClickHouse_SOURCE_DIR}/src
+    ${ClickHouse_SOURCE_DIR}/base
+)
+
 add_library(clickhouse_common_io ${clickhouse_common_io_headers} ${clickhouse_common_io_sources})
 
 if (SPLIT_SHARED_LIBRARIES)
@@ -250,6 +264,7 @@ target_link_libraries (clickhouse_common_io
             string_utils
             widechar_width
             ${LINK_LIBRARIES_ONLY_ON_X86_64}
+            clickhouse_common_profile
         PUBLIC
             common
             ${DOUBLE_CONVERSION_LIBRARIES}
@@ -276,7 +291,12 @@ target_link_libraries(clickhouse_common_io
             Poco::Foundation
             roaring
 )
-
+target_link_libraries(clickhouse_common_profile
+    PRIVATE
+            ${CITYHASH_LIBRARIES}
+            pcg_random
+            roaring
+)
 
 
 if (USE_RDKAFKA)

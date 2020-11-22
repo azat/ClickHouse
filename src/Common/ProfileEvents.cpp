@@ -265,7 +265,7 @@ void Counters::resetCounters()
     if (counters)
     {
         for (Event i = 0; i < num_counters; ++i)
-            counters[i].store(0, std::memory_order_relaxed);
+            uatomic_set(&counters[i], 0);
     }
 }
 
@@ -279,7 +279,7 @@ Counters Counters::getPartiallyAtomicSnapshot() const
 {
     Counters res(VariableContext::Snapshot, nullptr);
     for (Event i = 0; i < num_counters; ++i)
-        res.counters[i].store(counters[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
+        res.counters[i] = uatomic_read(&counters[i]);
     return res;
 }
 

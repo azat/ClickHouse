@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Common/VariableContext.h>
-#include <atomic>
+#include <urcu/uatomic.h>
 #include <memory>
 #include <stddef.h>
 
@@ -15,7 +15,8 @@ namespace ProfileEvents
     /// Event identifier (index in array).
     using Event = size_t;
     using Count = size_t;
-    using Counter = std::atomic<Count>;
+    /// Uses RCU to provide atomicity
+    using Counter = size_t;
     class Counters;
 
     /// Counters - how many times each event happened
@@ -54,7 +55,7 @@ namespace ProfileEvents
             Counters * current = this;
             do
             {
-                current->counters[event].fetch_add(amount, std::memory_order_relaxed);
+                uatomic_add_return(&current->counters[event], amount);
                 current = current->parent;
             } while (current != nullptr);
         }
