@@ -53,6 +53,7 @@ else()
     # TODO:
     # - enumerate includes (for some IDE's)
     # - check config.h and similar
+    # - compatibility layer via std::atomic?
 endif()
 
 set(USERSPACE_RCU_LIBRARY
