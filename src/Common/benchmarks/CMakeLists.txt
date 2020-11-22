@@ -1,0 +1,3 @@
+add_executable(atomic_benchmark atomic_benchmark.cpp)
+set_source_files_properties(atomic_benchmark.cpp PROPERTIES COMPILE_FLAGS -Wno-deprecated-volatile)
+target_link_libraries(atomic_benchmark PRIVATE benchmark::benchmark_main)
