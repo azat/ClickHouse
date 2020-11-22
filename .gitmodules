@@ -203,3 +203,6 @@
 [submodule "contrib/xz"]
        path = contrib/xz
        url = https://github.com/xz-mirror/xz
+[submodule "contrib/userspace-rcu"]
+	path = contrib/userspace-rcu
+	url = https://git.lttng.org/userspace-rcu.git
