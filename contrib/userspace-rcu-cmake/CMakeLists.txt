@@ -52,7 +52,6 @@ else()
     set(USERSPACE_RCU_LIBRARY_MEMB urcu-memb)
     # TODO:
     # - enumerate includes (for some IDE's)
-    # - add submodule to fasttest
     # - check config.h and similar
 endif()
 
