@@ -7,5 +7,8 @@ target_link_libraries(atomic_benchmark PRIVATE benchmark::benchmark_main)
 # userspace_rcu_benchmark
 add_executable(userspace_rcu_bp_benchmark userspace_rcu_benchmark.cpp)
 target_link_libraries(userspace_rcu_bp_benchmark PRIVATE benchmark::benchmark_main urcu::bp)
+target_compile_definitions(userspace_rcu_bp_benchmark PRIVATE -DRCU_BP)
+
 add_executable(userspace_rcu_memb_benchmark userspace_rcu_benchmark.cpp)
 target_link_libraries(userspace_rcu_memb_benchmark PRIVATE benchmark::benchmark_main urcu::memb)
+target_compile_definitions(userspace_rcu_memb_benchmark PRIVATE -DRCU_MEMB)
