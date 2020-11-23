@@ -8,6 +8,10 @@
 #error None of RCU_* defined
 #endif
 
+#if !defined(_LGPL_SOURCE)
+#error URCU is very slow w/o _LGPL_SOURCE
+#endif
+
 static void BM_userspace_rcu(benchmark::State& state)
 {
     rcu_init();
