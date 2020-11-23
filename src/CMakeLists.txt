@@ -128,6 +128,9 @@ endif ()
 list (REMOVE_ITEM clickhouse_common_io_sources Common/ProfileEvents.cpp)
 list (REMOVE_ITEM clickhouse_common_io_sources Common/ProfileEvents.h)
 add_library(clickhouse_common_profile OBJECT Common/ProfileEvents.cpp Common/ProfileEvents.h)
+# FIXME: for now only bullet proof version can be used, since other variants
+# requires registering threads, and even though most of the time this can be
+# done (due to ThreadPool), it is not 100% under control
 target_link_libraries (clickhouse_common_profile PRIVATE urcu::bp)
 target_include_directories (clickhouse_common_profile PUBLIC
     ${ClickHouse_SOURCE_DIR}/src
