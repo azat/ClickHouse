@@ -25,7 +25,6 @@ namespace ErrorCodes
 {
     extern const int NOT_ENOUGH_SPACE;
 }
-class MergeSorter;
 
 
 class BufferingToFileTransform : public IAccumulatingTransform
@@ -101,7 +100,9 @@ MergeSortingTransform::MergeSortingTransform(
     : SortingTransform(header, description_, max_merged_block_size_, limit_)
     , max_bytes_before_remerge(max_bytes_before_remerge_)
     , max_bytes_before_external_sort(max_bytes_before_external_sort_), tmp_volume(tmp_volume_)
-    , min_free_disk_space(min_free_disk_space_) {}
+    , min_free_disk_space(min_free_disk_space_)
+    , remerge_limit(limit_ * 2)
+{}
 
 Processors MergeSortingTransform::expandPipeline()
 {
@@ -159,8 +160,7 @@ void MergeSortingTransform::consume(Chunk chunk)
       */
     if (chunks.size() > 1
         && limit
-        && limit * 2 < sum_rows_in_blocks   /// 2 is just a guess.
-        && remerge_is_useful
+        && remerge_limit < sum_rows_in_blocks
         && max_bytes_before_remerge
         && sum_bytes_in_blocks > max_bytes_before_remerge)
     {
@@ -266,11 +266,17 @@ void MergeSortingTransform::remerge()
         new_chunks.emplace_back(std::move(chunk));
     }
 
-    LOG_DEBUG(log, "Memory usage is lowered from {} to {}", ReadableSize(sum_bytes_in_blocks), ReadableSize(new_sum_bytes_in_blocks));
-
-    /// If the memory consumption was not lowered enough - we will not perform remerge anymore. 2 is a guess.
-    if (new_sum_bytes_in_blocks * 2 > sum_bytes_in_blocks)
-        remerge_is_useful = false;
+    UInt64 old_remerge_limit = remerge_limit;
+    /// If the memory consumption was not lowered enough - we will increase number of rows for remerge.
+    if (new_sum_bytes_in_blocks*2 > sum_bytes_in_blocks)
+    {
+        remerge_limit += max_merged_block_size;
+    }
+    LOG_DEBUG(log, "Memory usage is lowered from {} ({} rows) to {} ({} rows) (remerge limit {} {})",
+        ReadableSize(sum_bytes_in_blocks), sum_rows_in_blocks,
+        ReadableSize(new_sum_bytes_in_blocks), new_sum_rows_in_blocks,
+        old_remerge_limit != remerge_limit ? "was increased to" : "is",
+        remerge_limit);
 
     chunks = std::move(new_chunks);
     sum_rows_in_blocks = new_sum_rows_in_blocks;

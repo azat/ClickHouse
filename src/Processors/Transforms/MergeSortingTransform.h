@@ -45,8 +45,9 @@ private:
 
     Poco::Logger * log = &Poco::Logger::get("MergeSortingTransform");
 
-    /// If remerge doesn't save memory at least several times, mark it as useless and don't do it anymore.
-    bool remerge_is_useful = true;
+    /// Default is limit*2 (2 is just a guess)
+    /// But when remerge doesn't reduce memory usage 2x, it will be increased.
+    UInt64 remerge_limit;
 
     /// Everything below is for external sorting.
     std::vector<std::unique_ptr<TemporaryFile>> temporary_files;
