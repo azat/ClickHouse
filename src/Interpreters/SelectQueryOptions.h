@@ -42,6 +42,7 @@ struct SelectQueryOptions
     bool ignore_alias = false;
     bool is_internal = false;
     bool is_subquery = false; // non-subquery can also have subquery_depth > 0, e.g. insert select
+    bool remove_unused_with_aliases = false;
 
     SelectQueryOptions(QueryProcessingStage::Enum stage = QueryProcessingStage::Complete, size_t depth = 0, bool is_subquery_ = false)
         : to_stage(stage), subquery_depth(depth), is_subquery(is_subquery_)
@@ -76,6 +77,12 @@ struct SelectQueryOptions
     SelectQueryOptions & removeDuplicates(bool value = true)
     {
         remove_duplicates = value;
+        return *this;
+    }
+
+    SelectQueryOptions & removeUnusedWithAliases(bool value = true)
+    {
+        remove_unused_with_aliases = value;
         return *this;
     }
 
