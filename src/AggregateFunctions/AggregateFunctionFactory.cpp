@@ -57,6 +57,8 @@ void AggregateFunctionFactory::registerFunction(const String & name, Value creat
 
 static DataTypes convertLowCardinalityTypesToNested(const DataTypes & types)
 {
+    return types;
+
     DataTypes res_types;
     res_types.reserve(types.size());
     for (const auto & type : types)
