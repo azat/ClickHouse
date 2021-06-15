@@ -95,6 +95,7 @@ private:
 
     bool insert_sync;
     bool allow_materialized;
+    bool random_shard_insert;
 
     /// Sync-related stuff
     UInt64 insert_timeout; // in seconds
