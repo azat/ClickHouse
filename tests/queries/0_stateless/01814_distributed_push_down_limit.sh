@@ -151,16 +151,6 @@ function main()
     done
     echo "$out"
 
-    echo 'auto-distributed_push_down_limit'
-    for ((i = 0; i < max_tries; ++i)); do
-        out=$(test_auto_distributed_push_down_limit)
-        out_lines=( $out )
-        if [[ ${#out_lines[@]} -gt 2 ]] && [[ ${out_lines[-1]} = 40 ]] && [[ ${out_lines[-2]} = 40 ]]; then
-            break
-        fi
-    done
-    echo "$out"
-
     echo 'distributed_push_down_limit=1 with OFFSET'
     test_distributed_push_down_limit_1_offset
 }
