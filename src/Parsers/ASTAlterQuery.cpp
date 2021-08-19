@@ -168,7 +168,7 @@ void ASTAlterCommand::formatImpl(
         index->formatImpl(settings, state, frame);
         if (partition)
         {
-            settings.ostr << (settings.hilite ? hilite_keyword : "") << indent_str << " IN PARTITION " << (settings.hilite ? hilite_none : "");
+            settings.ostr << (settings.hilite ? hilite_keyword : "") << indent_str << (!part ? " IN PARTITION " : " IN PART ") << (settings.hilite ? hilite_none : "");
             partition->formatImpl(settings, state, frame);
         }
     }

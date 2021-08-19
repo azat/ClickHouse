@@ -29,10 +29,12 @@ namespace ErrorCodes
 
 std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command, bool parse_alter_commands)
 {
+    MutationCommand res;
+    res.ast = command->ptr();
+    res.part = command->part;
+
     if (command->type == ASTAlterCommand::DELETE)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = DELETE;
         res.predicate = command->predicate;
         res.partition = command->partition;
@@ -40,8 +42,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (command->type == ASTAlterCommand::UPDATE)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = UPDATE;
         res.predicate = command->predicate;
         res.partition = command->partition;
@@ -57,8 +57,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (command->type == ASTAlterCommand::MATERIALIZE_INDEX)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = MATERIALIZE_INDEX;
         res.partition = command->partition;
         res.predicate = nullptr;
@@ -67,8 +65,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (command->type == ASTAlterCommand::MATERIALIZE_PROJECTION)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = MATERIALIZE_PROJECTION;
         res.partition = command->partition;
         res.predicate = nullptr;
@@ -77,8 +73,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (parse_alter_commands && command->type == ASTAlterCommand::MODIFY_COLUMN)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = MutationCommand::Type::READ_COLUMN;
         const auto & ast_col_decl = command->col_decl->as<ASTColumnDeclaration &>();
         res.column_name = ast_col_decl.name;
@@ -87,8 +81,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (parse_alter_commands && command->type == ASTAlterCommand::DROP_COLUMN)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = MutationCommand::Type::DROP_COLUMN;
         res.column_name = getIdentifierName(command->column);
         if (command->partition)
@@ -100,8 +92,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (parse_alter_commands && command->type == ASTAlterCommand::DROP_INDEX)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = MutationCommand::Type::DROP_INDEX;
         res.column_name = command->index->as<ASTIdentifier &>().name();
         if (command->partition)
@@ -112,8 +102,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (parse_alter_commands && command->type == ASTAlterCommand::DROP_PROJECTION)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = MutationCommand::Type::DROP_PROJECTION;
         res.column_name = command->projection->as<ASTIdentifier &>().name();
         if (command->partition)
@@ -124,8 +112,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (parse_alter_commands && command->type == ASTAlterCommand::RENAME_COLUMN)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = MutationCommand::Type::RENAME_COLUMN;
         res.column_name = command->column->as<ASTIdentifier &>().name();
         res.rename_to = command->rename_to->as<ASTIdentifier &>().name();
@@ -133,8 +119,6 @@ std::optional<MutationCommand> MutationCommand::parse(ASTAlterCommand * command,
     }
     else if (command->type == ASTAlterCommand::MATERIALIZE_TTL)
     {
-        MutationCommand res;
-        res.ast = command->ptr();
         res.type = MATERIALIZE_TTL;
         res.partition = command->partition;
         return res;

@@ -10,12 +10,18 @@
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTIndexDeclaration.h>
 #include <Parsers/ASTAlterQuery.h>
+#include <Parsers/ASTPartition.h>
 #include <Parsers/ASTLiteral.h>
 #include <Parsers/parseDatabaseAndTableName.h>
 
 
 namespace DB
 {
+
+namespace ErrorCodes
+{
+    extern const int BAD_ARGUMENTS;
+}
 
 bool ParserAlterCommand::parseImpl(Pos & pos, ASTPtr & node, Expected & expected)
 {
@@ -79,6 +85,7 @@ bool ParserAlterCommand::parseImpl(Pos & pos, ASTPtr & node, Expected & expected
     ParserKeyword s_if_exists("IF EXISTS");
     ParserKeyword s_from("FROM");
     ParserKeyword s_in_partition("IN PARTITION");
+    ParserKeyword s_in_part("IN PART");
     ParserKeyword s_with("WITH");
     ParserKeyword s_name("NAME");
 
@@ -289,6 +296,17 @@ bool ParserAlterCommand::parseImpl(Pos & pos, ASTPtr & node, Expected & expected
             {
                 if (!parser_partition.parse(pos, command->partition, expected))
                     return false;
+            }
+            else if (s_in_part.ignore(pos, expected))
+            {
+                command->part = true;
+
+                if (!parser_partition.parse(pos, command->partition, expected))
+                    return false;
+
+                const auto & partition_ast = command->partition->as<ASTPartition &>();
+                if (!partition_ast.id.empty())
+                    throw Exception(ErrorCodes::BAD_ARGUMENTS, "IN PART does not allow ID");
             }
         }
         else if (s_add_projection.ignore(pos, expected))

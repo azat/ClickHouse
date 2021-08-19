@@ -59,6 +59,9 @@ struct MutationCommand
     /// We need just clear column, not drop from metadata.
     bool clear = false;
 
+    /// Mutation over PART not the whole PARTITION.
+    bool part = false;
+
     /// Column rename_to
     String rename_to;
 

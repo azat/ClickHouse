@@ -23,6 +23,7 @@
 #include <Parsers/ASTLiteral.h>
 #include <Parsers/ASTExpressionList.h>
 #include <Parsers/ASTSelectQuery.h>
+#include <Parsers/ASTPartition.h>
 #include <Parsers/formatAST.h>
 #include <IO/WriteHelpers.h>
 #include <Processors/QueryPlan/CreatingSetsStep.h>
@@ -239,21 +240,42 @@ ASTPtr getPartitionAndPredicateExpressionForMutationCommand(
     ASTPtr partition_predicate_as_ast_func;
     if (command.partition)
     {
-        String partition_id;
+        if (!command.part)
+        {
+            String partition_id;
 
-        auto storage_merge_tree = std::dynamic_pointer_cast<MergeTreeData>(storage);
-        auto storage_from_merge_tree_data_part = std::dynamic_pointer_cast<StorageFromMergeTreeDataPart>(storage);
-        if (storage_merge_tree)
-            partition_id = storage_merge_tree->getPartitionIDFromQuery(command.partition, context);
-        else if (storage_from_merge_tree_data_part)
-            partition_id = storage_from_merge_tree_data_part->getPartitionIDFromQuery(command.partition, context);
+            auto storage_merge_tree = std::dynamic_pointer_cast<MergeTreeData>(storage);
+            auto storage_from_merge_tree_data_part = std::dynamic_pointer_cast<StorageFromMergeTreeDataPart>(storage);
+
+            if (storage_merge_tree)
+                partition_id = storage_merge_tree->getPartitionIDFromQuery(command.partition, context);
+            else if (storage_from_merge_tree_data_part)
+                partition_id = storage_from_merge_tree_data_part->getPartitionIDFromQuery(command.partition, context);
+            else
+                throw Exception("ALTER UPDATE/DELETE ... IN PARTITION is not supported for non-MergeTree tables", ErrorCodes::NOT_IMPLEMENTED);
+
+            partition_predicate_as_ast_func = makeASTFunction("equals",
+                std::make_shared<ASTIdentifier>("_partition_id"),
+                std::make_shared<ASTLiteral>(partition_id)
+            );
+        }
         else
-            throw Exception("ALTER UPDATE/DELETE ... IN PARTITION is not supported for non-MergeTree tables", ErrorCodes::NOT_IMPLEMENTED);
-
-        partition_predicate_as_ast_func = makeASTFunction("equals",
-                    std::make_shared<ASTIdentifier>("_partition_id"),
-                    std::make_shared<ASTLiteral>(partition_id)
-        );
+        {
+            const auto & partition_ast = command.partition->as<ASTPartition &>();
+            const auto * partition_lit = partition_ast.value->as<ASTLiteral>();
+            if (partition_lit && partition_lit->value.getType() == Field::Types::String)
+            {
+                String part = partition_lit->value.get<String>();
+                partition_predicate_as_ast_func = makeASTFunction("equals",
+                    std::make_shared<ASTIdentifier>("_part"),
+                    std::make_shared<ASTLiteral>(part)
+                );
+            }
+            else
+            {
+                throw Exception(ErrorCodes::BAD_ARGUMENTS, "PART is not valid");
+            }
+        }
     }
 
     if (command.predicate && command.partition)

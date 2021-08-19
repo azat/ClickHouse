@@ -14,6 +14,12 @@ The following operations are available:
 
 -   `ALTER TABLE [db.]table MATERIALIZE INDEX name IN PARTITION partition_name` - The query rebuilds the secondary index `name` in the partition `partition_name`. Implemented as a [mutation](../../../../sql-reference/statements/alter/index.md#mutations).
 
+-   `ALTER TABLE [db.]table MATERIALIZE INDEX name IN PART part_name` - The query rebuilds the secondary index `name` in the part `part_name`. Implemented as a [mutation](../../../../sql-reference/statements/alter/index.md#mutations).
+
+!!! note "Note"
+
+    `IN PART` is very doubtful, since `PART` may be removed until mutation will start.
+
 The first two commands are lightweight in a sense that they only change metadata or remove files.
 
 Also, they are replicated, syncing indices metadata via ZooKeeper.
