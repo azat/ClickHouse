@@ -1,0 +1,13 @@
+-- vim: set ft=sql:
+
+-- Test for the CHJIT that it does not use VMA for each compiled function.
+-- https://github.com/ClickHouse/ClickHouse/pull/28156
+
+set compile_expressions=1;
+set min_count_to_compile_expression=0;
+
+{% for i in range(1, 65535) %}
+select * from numbers(1e6) where number + {{ i }} > 0 limit 1 format Null;
+{% endfor %}
+
+select throwIf(value < 65535) from system.events where event = 'CompileFunction';
