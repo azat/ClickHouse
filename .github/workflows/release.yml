@@ -11,7 +11,6 @@ on:
 jobs:
   ReleasePublish:
     runs-on: [self-hosted, style-checker]
-    container: clickhouse/style-test
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2
@@ -27,6 +26,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{runner.temp}}/release_packages/*
           overwrite: true
           tag: ${{ github.ref }}
-          file_glob: ${{runner.temp}}/release_packages/*
+          file_glob: true
