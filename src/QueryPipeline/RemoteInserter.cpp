@@ -130,7 +130,9 @@ void RemoteInserter::onFinish()
             packet.exception->rethrow();
         else if (Protocol::Server::Log == packet.type)
         {
-            // Do nothing
+            /// Pass logs from remote server to client
+            if (auto log_queue = CurrentThread::getInternalTextLogsQueue())
+                log_queue->pushBlock(std::move(packet.block));
         }
         else
             throw NetException(
