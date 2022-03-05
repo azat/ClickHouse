@@ -43,6 +43,8 @@ private:
     Block header;
     bool finished = false;
     UInt64 server_revision;
+
+    void pollLogs();
 };
 
 }

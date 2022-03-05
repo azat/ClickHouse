@@ -88,6 +88,8 @@ RemoteInserter::RemoteInserter(
 
 void RemoteInserter::write(Block block)
 {
+    pollLogs();
+
     try
     {
         connection.sendData(block, /* name */"", /* scalar */false);
@@ -109,8 +111,30 @@ void RemoteInserter::write(Block block)
 
 void RemoteInserter::writePrepared(ReadBuffer & buf, size_t size)
 {
+    pollLogs();
+
     /// We cannot use 'header'. Input must contain block with proper structure.
     connection.sendPreparedData(buf, size);
+}
+
+void RemoteInserter::pollLogs()
+{
+    while (connection.poll(0))
+    {
+        Packet packet = connection.receivePacket();
+
+        if (Protocol::Server::Exception == packet.type)
+            packet.exception->rethrow();
+        else if (Protocol::Server::Log == packet.type)
+        {
+            /// Pass logs from remote server to client
+            if (auto log_queue = CurrentThread::getInternalTextLogsQueue())
+                log_queue->pushBlock(std::move(packet.block));
+        }
+        else
+            throw NetException("Unexpected packet from server (expected Exception or Log, got "
+            + String(Protocol::Server::toString(packet.type)) + ")", ErrorCodes::UNEXPECTED_PACKET_FROM_SERVER);
+    }
 }
 
 
