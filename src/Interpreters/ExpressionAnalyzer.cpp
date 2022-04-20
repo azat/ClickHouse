@@ -1397,15 +1397,17 @@ bool SelectQueryExpressionAnalyzer::appendLimitBy(ExpressionActionsChain & chain
     if (!select_query->limitBy())
         return false;
 
-    ExpressionActionsChain::Step & step = chain.lastStep(aggregated_columns);
+    /// Use columns for ORDER BY.
+    /// They could be required to do ORDER BY on the initiator in case of distributed queries.
+    ExpressionActionsChain::Step & step = chain.lastStep(chain.getLastStep().getRequiredColumns());
 
     getRootActions(select_query->limitBy(), only_types, step.actions());
 
-    NameSet aggregated_names;
-    for (const auto & column : aggregated_columns)
+    NameSet existing_column_names;
+    for (const auto & column : chain.getLastStep().getRequiredColumns())
     {
         step.addRequiredOutput(column.name);
-        aggregated_names.insert(column.name);
+        existing_column_names.insert(column.name);
     }
 
     auto & children = select_query->limitBy()->children;
@@ -1415,7 +1417,7 @@ bool SelectQueryExpressionAnalyzer::appendLimitBy(ExpressionActionsChain & chain
             replaceForPositionalArguments(child, select_query, ASTSelectQuery::Expression::LIMIT_BY);
 
         auto child_name = child->getColumnName();
-        if (!aggregated_names.count(child_name))
+        if (!existing_column_names.count(child_name))
             step.addRequiredOutput(child_name);
     }
 
