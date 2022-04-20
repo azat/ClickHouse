@@ -1,0 +1,18 @@
+[with_mergeable_state] SELECT k FROM (SELECT materialize('foo') AS k, -1 AS v) ORDER BY abs(v) AS _v ASC LIMIT 1 BY k FORMAT TSVWithNames
+k	abs(v)
+foo	1
+[with_mergeable_state] SELECT k FROM (SELECT materialize('foo') AS k, -1 AS v) ORDER BY abs(v) AS _v ASC FORMAT TSVWithNames
+k	abs(v)
+foo	1
+[with_mergeable_state_after_aggregation] SELECT k FROM (SELECT materialize('foo') AS k, -1 AS v) ORDER BY abs(v) AS _v ASC LIMIT 1 BY k FORMAT TSVWithNames
+k	abs(v)
+foo	1
+[with_mergeable_state_after_aggregation] SELECT k FROM (SELECT materialize('foo') AS k, -1 AS v) ORDER BY abs(v) AS _v ASC FORMAT TSVWithNames
+k	abs(v)
+foo	1
+[with_mergeable_state_after_aggregation_and_limit] SELECT k FROM (SELECT materialize('foo') AS k, -1 AS v) ORDER BY abs(v) AS _v ASC LIMIT 1 BY k FORMAT TSVWithNames
+k	abs(v)
+foo	1
+[with_mergeable_state_after_aggregation_and_limit] SELECT k FROM (SELECT materialize('foo') AS k, -1 AS v) ORDER BY abs(v) AS _v ASC FORMAT TSVWithNames
+k	abs(v)
+foo	1
