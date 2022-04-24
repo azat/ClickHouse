@@ -368,6 +368,7 @@ CHJIT::CHJIT()
     symbol_resolver->registerSymbol("memset", reinterpret_cast<void *>(&memset));
     symbol_resolver->registerSymbol("memcpy", reinterpret_cast<void *>(&memcpy));
     symbol_resolver->registerSymbol("memcmp", reinterpret_cast<void *>(&memcmp));
+    symbol_resolver->registerSymbol("printf", reinterpret_cast<void *>(&printf));
 }
 
 CHJIT::~CHJIT() = default;

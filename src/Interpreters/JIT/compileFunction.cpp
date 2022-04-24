@@ -326,6 +326,12 @@ static void compileAddIntoAggregateStatesFunctions(llvm::Module & module, const 
     llvm::IRBuilder<> entry_builder(entry);
     auto * places_start_arg = entry_builder.CreateInBoundsGEP(nullptr, places_arg, row_start_arg);
 
+    llvm::FunctionType * printf_declaration = llvm::FunctionType::get(b.getInt32Ty(), {b.getInt8PtrTy()}, true);
+    llvm::Function * printf_definition = llvm::Function::Create(printf_declaration, llvm::Function::ExternalLinkage, "printf", module);
+
+    b.CreateCall(printf_definition, {b.CreateGlobalStringPtr("> in llvm fun, row_start_art = %zu\n"), row_start_arg});
+    b.CreateCall(printf_definition, {b.CreateGlobalStringPtr("> in llvm fun, places_start_arg = %p\n"), places_start_arg});
+
     std::vector<ColumnDataPlaceholder> columns;
     size_t previous_columns_size = 0;
 
@@ -377,6 +383,7 @@ static void compileAddIntoAggregateStatesFunctions(llvm::Module & module, const 
     }
 
     auto * aggregation_place = b.CreateLoad(b.getInt8Ty()->getPointerTo(), places_phi);
+    b.CreateCall(printf_definition, {b.CreateGlobalStringPtr("> in llvm fun, aggregation_place = %p\n"), aggregation_place});
 
     previous_columns_size = 0;
     for (const auto & function : functions)
@@ -398,6 +405,7 @@ static void compileAddIntoAggregateStatesFunctions(llvm::Module & module, const 
             auto & argument_type = arguments_types[column_argument_index];
 
             auto * value = b.CreateLoad(toNativeType(b, removeNullable(argument_type)), column_argument_data);
+            b.CreateCall(printf_definition, {b.CreateGlobalStringPtr("> in llvm fun, value = %i\n"), value});
             if (!argument_type->isNullable())
             {
                 arguments_values[column_argument_index] = value;
@@ -411,6 +419,7 @@ static void compileAddIntoAggregateStatesFunctions(llvm::Module & module, const 
         }
 
         auto * aggregation_place_with_offset = b.CreateConstInBoundsGEP1_64(nullptr, aggregation_place, aggregate_function_offset);
+        b.CreateCall(printf_definition, {b.CreateGlobalStringPtr("> in llvm fun, aggregation_place_with_offset = %p\n"), aggregation_place_with_offset});
         aggregate_function_ptr->compileAdd(b, aggregation_place_with_offset, arguments_types, arguments_values);
 
         previous_columns_size += function_arguments_size;
@@ -430,6 +439,8 @@ static void compileAddIntoAggregateStatesFunctions(llvm::Module & module, const 
     places_phi->addIncoming(b.CreateConstInBoundsGEP1_64(nullptr, places_phi, 1), cur_block);
 
     auto * value = b.CreateAdd(counter_phi, llvm::ConstantInt::get(size_type, 1));
+    b.CreateCall(printf_definition, {b.CreateGlobalStringPtr("> in llvm fun, counter_phi = %zu\n"), value});
+
     counter_phi->addIncoming(value, cur_block);
 
     b.CreateCondBr(b.CreateICmpEQ(value, row_end_arg), end, loop);
