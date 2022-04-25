@@ -239,7 +239,8 @@ private:
     void sendTableColumns(const ColumnsDescription & columns);
     void sendException(const Exception & e, bool with_stack_trace);
     void sendProgress();
-    void sendLogs();
+    /// If flush = true, then send Log packet one by one.
+    void sendLogs(bool flush = false);
     void sendEndOfStream();
     void sendPartUUIDs();
     void sendReadTaskRequestAssumeLocked();

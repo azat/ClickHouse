@@ -581,9 +581,22 @@ bool TCPHandler::readDataNext()
     }
 
     if (read_ok)
-        sendLogs();
+    {
+        /// In case of INSERT into Distributed with send_logs_level,
+        /// we want to send Log packets one-by-one, to avoid possible client-server deadlock.
+        ///
+        /// It is possible for server to trying to send the next data block,
+        /// while client (this TCPHandler) will try to send logs to it,
+        /// and will not read anything until it will send logs, however the server's internal socket is full already.
+        ///
+        /// And by sending Log packets one-by-one, we will avoid this issue,
+        /// since before the server will send the next block it will read all Log packets.
+        sendLogs(/* flush= */ true);
+    }
     else
+    {
         state.read_all_data = true;
+    }
 
     return read_ok;
 }
@@ -1743,7 +1756,7 @@ void TCPHandler::sendProgress()
 }
 
 
-void TCPHandler::sendLogs()
+void TCPHandler::sendLogs(bool flush)
 {
     if (!state.logs_queue)
         return;
@@ -1752,24 +1765,40 @@ void TCPHandler::sendLogs()
     MutableColumns curr_logs_columns;
     size_t rows = 0;
 
-    for (; state.logs_queue->tryPop(curr_logs_columns); ++rows)
-    {
-        if (rows == 0)
-        {
-            logs_columns = std::move(curr_logs_columns);
-        }
-        else
-        {
-            for (size_t j = 0; j < logs_columns.size(); ++j)
-                logs_columns[j]->insertRangeFrom(*curr_logs_columns[j], 0, curr_logs_columns[j]->size());
-        }
-    }
-
-    if (rows > 0)
+    auto send_block = [&]()
     {
         Block block = InternalTextLogsQueue::getSampleBlock();
         block.setColumns(std::move(logs_columns));
         sendLogData(block);
+    };
+
+    if (flush)
+    {
+        for (; state.logs_queue->tryPop(curr_logs_columns); )
+        {
+            logs_columns = std::move(curr_logs_columns);
+            send_block();
+        }
+    }
+    else
+    {
+        for (; state.logs_queue->tryPop(curr_logs_columns); ++rows)
+        {
+            if (rows == 0)
+            {
+                logs_columns = std::move(curr_logs_columns);
+            }
+            else
+            {
+                for (size_t j = 0; j < logs_columns.size(); ++j)
+                    logs_columns[j]->insertRangeFrom(*curr_logs_columns[j], 0, curr_logs_columns[j]->size());
+            }
+        }
+
+        if (rows > 0)
+        {
+            send_block();
+        }
     }
 }
 
