@@ -21,7 +21,8 @@ function thread1()
 function thread2()
 {
     while true; do
-        ${CLICKHOUSE_CLIENT} --query="CREATE TABLE IF NOT EXISTS test_01444.t$RANDOM (x UInt8) ENGINE = MergeTree ORDER BY tuple()" 2>/dev/null
+        # NOTE: Only engines that creates directory inside data path can be used here (hence Null does not fit)
+        ${CLICKHOUSE_CLIENT} --query="CREATE TABLE IF NOT EXISTS test_01444.t$RANDOM (x UInt8) ENGINE = TinyLog" 2>/dev/null
     done
 }
 
