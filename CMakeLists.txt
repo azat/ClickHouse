@@ -215,6 +215,12 @@ if (NOT CMAKE_BUILD_TYPE_UC STREQUAL "RELEASE")
             set (USE_GDB_ADD_INDEX 1)
             message (STATUS "gdb-add-index found: ${GDB_ADD_INDEX_EXE}")
         endif()
+    elseif (LINKER_NAME MATCHES "mold$")
+        # https://github.com/rui314/mold/issues/396
+        set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gdb-index")
+        set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gdb-index")
+        set (COMPILER_FLAGS "${COMPILER_FLAGS} -ggnu-pubnames")
+        message (STATUS "Adding .gdb-index via --gdb-index -ggnu-pubnames options.")
     endif ()
 endif()
 

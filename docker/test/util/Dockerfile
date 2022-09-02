@@ -57,6 +57,9 @@ RUN apt-get update \
 # This symlink required by gcc to find lld compiler
 RUN ln -s /usr/bin/lld-${LLVM_VERSION} /usr/bin/ld.lld
 
+RUN wget -nv -O- https://github.com/rui314/mold/releases/download/v1.4.1/mold-1.4.1-x86_64-linux.tar.gz | \
+    tar -vxf- -z -C /usr --strip-components 1
+
 ARG CCACHE_VERSION=4.6.1
 RUN mkdir /tmp/ccache \
     && cd /tmp/ccache \
