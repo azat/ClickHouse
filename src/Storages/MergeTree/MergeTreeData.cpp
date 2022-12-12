@@ -6856,7 +6856,10 @@ MergeTreeData::CurrentlyMovingPartsTaggerPtr MergeTreeData::selectPartsForMove()
 {
     MergeTreeMovingParts parts_to_move;
 
-    auto can_move = [this](const DataPartPtr & part, String * reason) -> bool
+    const auto move_ttl_min_age = static_cast<time_t>(getSettings()->move_ttl_min_age);
+    const time_t now = time(nullptr);
+
+    auto can_move = [this, move_ttl_min_age, now](const DataPartPtr & part, String * reason) -> bool
     {
         if (partIsAssignedToBackgroundOperation(part))
         {
@@ -6867,6 +6870,16 @@ MergeTreeData::CurrentlyMovingPartsTaggerPtr MergeTreeData::selectPartsForMove()
         {
             *reason = "part is already moving.";
             return false;
+        }
+
+        if (move_ttl_min_age)
+        {
+            time_t seconds_left = part->modification_time + move_ttl_min_age - now;
+            if (seconds_left <= 0)
+            {
+                *reason = fmt::format("parts is new ({} sec left).", seconds_left);
+                return false;
+            }
         }
 
         return true;
