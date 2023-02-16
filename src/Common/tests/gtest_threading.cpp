@@ -5,6 +5,7 @@
 #include <shared_mutex>
 #include <barrier>
 #include <atomic>
+#include <absl/synchronization/mutex.h>
 
 #include "Common/Exception.h"
 #include <Common/CancelToken.h>
@@ -14,6 +15,35 @@
 
 #include <base/demangle.h>
 #include <base/getThreadId.h>
+
+
+namespace
+{
+    /// Wrap absl::Mutex to make the interface compatible with std::unique_lock/shared_lock.
+    class AbslMutex : public absl::Mutex
+    {
+    public:
+        using absl::Mutex::Mutex;
+
+        void lock_shared() ABSL_SHARED_LOCK_FUNCTION()
+        {
+            ReaderLock();
+        }
+        void unlock_shared() ABSL_UNLOCK_FUNCTION()
+        {
+            ReaderUnlock();
+        }
+
+        void lock() ABSL_EXCLUSIVE_LOCK_FUNCTION()
+        {
+            WriterLock();
+        }
+        void unlock() ABSL_UNLOCK_FUNCTION()
+        {
+            WriterUnlock();
+        }
+    };
+}
 
 
 namespace DB
@@ -405,6 +435,8 @@ TEST(Threading, PerfTestSharedMutexRWCancelableEnabled) { PerfTestSharedMutexRW<
 TEST(Threading, PerfTestSharedMutexRWCancelableDisabled) { PerfTestSharedMutexRW<DB::CancelableSharedMutex>(); }
 TEST(Threading, PerfTestSharedMutexRWFast) { PerfTestSharedMutexRW<DB::SharedMutex>(); }
 TEST(Threading, PerfTestSharedMutexRWStd) { PerfTestSharedMutexRW<std::shared_mutex>(); }
+
+TEST(Threading, PerfTestAbseilMutexRW) { PerfTestSharedMutexRW<AbslMutex>(); }
 
 #ifdef OS_LINUX /// These tests require cancellability
 
