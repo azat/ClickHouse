@@ -955,6 +955,7 @@ void HashedDictionary<dictionary_key_type, sparse, sharded>::calculateBytesAlloc
     size_t attributes_size = attributes.size();
     bytes_allocated += attributes_size * sizeof(attributes.front());
 
+    size_t new_bucket_count = 0;
     for (size_t attribute_index = 0; attribute_index < attributes_size; ++attribute_index)
     {
         getAttributeContainers(attribute_index, [&](const auto & containers)
@@ -973,12 +974,12 @@ void HashedDictionary<dictionary_key_type, sparse, sharded>::calculateBytesAlloc
                     /// and since this is sparsehash, empty cells should not be significant,
                     /// and since items cannot be removed from the dictionary, deleted is also not important.
                     bytes_allocated += container.size() * (sizeof(KeyType) + sizeof(AttributeValueType));
-                    bucket_count = container.bucket_count();
+                    new_bucket_count += container.bucket_count();
                 }
                 else
                 {
                     bytes_allocated += container.getBufferSizeInBytes();
-                    bucket_count = container.getBufferSizeInCells();
+                    new_bucket_count += container.getBufferSizeInCells();
                 }
             }
         });
@@ -1002,12 +1003,12 @@ void HashedDictionary<dictionary_key_type, sparse, sharded>::calculateBytesAlloc
             if constexpr (sparse)
             {
                 bytes_allocated += container.size() * (sizeof(KeyType));
-                bucket_count = container.bucket_count();
+                new_bucket_count += container.bucket_count();
             }
             else
             {
                 bytes_allocated += container.getBufferSizeInBytes();
-                bucket_count = container.getBufferSizeInCells();
+                new_bucket_count += container.getBufferSizeInCells();
             }
         }
     }
@@ -1023,6 +1024,8 @@ void HashedDictionary<dictionary_key_type, sparse, sharded>::calculateBytesAlloc
 
     for (const auto & arena : string_arenas)
         bytes_allocated += arena->allocatedBytes();
+
+    bucket_count = new_bucket_count;
 }
 
 template <DictionaryKeyType dictionary_key_type, bool sparse, bool sharded>
