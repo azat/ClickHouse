@@ -33,6 +33,7 @@ struct HashedDictionaryConfiguration
     const DictionaryLifetime lifetime;
 };
 
+static Int64 hashed_dictionary_allocated = 0;
 template <class T>
 class HashedDictionaryAllocator
 {
@@ -55,11 +56,15 @@ public:
 
     [[nodiscard]] T * allocate(size_t n)
     {
-        return reinterpret_cast<T *>(allocator.alloc(sizeof(T) * n));
+        size_t size = sizeof(T) * n;
+        hashed_dictionary_allocated += size;
+        return reinterpret_cast<T *>(allocator.alloc(size));
     }
     void deallocate(T * ptr, size_t n) noexcept
     {
-        allocator.free(ptr, sizeof(T) * n);
+        size_t size = sizeof(T) * n;
+        hashed_dictionary_allocated -= size;
+        allocator.free(ptr, size);
     }
 
     void construct(T * p, const T& val) { new (p) T(val); }

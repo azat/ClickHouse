@@ -213,6 +213,7 @@ HashedDictionary<dictionary_key_type, sparse, sharded>::HashedDictionary(
     , configuration(configuration_)
     , update_field_loaded_block(std::move(update_field_loaded_block_))
 {
+    hashed_dictionary_allocated = 0;
     MemoryTracker * memory_tracker = CurrentThread::getMemoryTracker();
 #if 0
     if (auto * memory_tracker_parent = memory_tracker->getParent(); memory_tracker_parent && memory_tracker_parent != &total_memory_tracker)
@@ -225,7 +226,9 @@ HashedDictionary<dictionary_key_type, sparse, sharded>::HashedDictionary(
     buildHierarchyParentToChildIndexIfNeeded();
 
     size_t memory_usage_after = memory_tracker->get();
-    LOG_TRACE(log, "Dictionary memory usage: {}", formatReadableSizeWithBinarySuffix(memory_usage_after - memory_usage_before));
+    LOG_TRACE(log, "Dictionary memory usage: memory tracker: {}, allocator: {}",
+        formatReadableSizeWithBinarySuffix(memory_usage_after - memory_usage_before),
+        formatReadableSizeWithBinarySuffix(hashed_dictionary_allocated));
 
     calculateBytesAllocated();
 
