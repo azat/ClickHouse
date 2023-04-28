@@ -17,7 +17,7 @@
       *
       * Not too small to avoid too quick exhaust of memory mappings.
       */
-    __attribute__((__weak__)) extern const size_t MMAP_THRESHOLD = 16384;
+    __attribute__((__weak__)) extern const size_t MMAP_THRESHOLD = 64 * (1ULL << 20);
 #endif
 
 template class Allocator<false, false>;
