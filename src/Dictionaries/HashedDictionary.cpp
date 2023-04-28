@@ -3,6 +3,7 @@
 #include <numeric>
 #include <boost/noncopyable.hpp>
 
+#include <Common/formatReadable.h>
 #include <Common/MemoryTracker.h>
 #include <Common/ArenaUtils.h>
 #include <Common/ThreadPool.h>
@@ -224,7 +225,7 @@ HashedDictionary<dictionary_key_type, sparse, sharded>::HashedDictionary(
     buildHierarchyParentToChildIndexIfNeeded();
 
     size_t memory_usage_after = memory_tracker->get();
-    LOG_TRACE(log, "Memory usage: {}", memory_usage_after - memory_usage_before);
+    LOG_TRACE(log, "Dictionary memory usage: {}", formatReadableSizeWithBinarySuffix(memory_usage_after - memory_usage_before));
 
     calculateBytesAllocated();
 
