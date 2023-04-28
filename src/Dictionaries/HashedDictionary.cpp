@@ -973,7 +973,7 @@ void HashedDictionary<dictionary_key_type, sparse, sharded>::calculateBytesAlloc
                     /// size()         - Returns table size, without empty and deleted
                     /// and since this is sparsehash, empty cells should not be significant,
                     /// and since items cannot be removed from the dictionary, deleted is also not important.
-                    bytes_allocated += container.size() * (sizeof(KeyType) + sizeof(AttributeValueType));
+                    bytes_allocated += container.bucket_count() * (sizeof(KeyType) + sizeof(AttributeValueType));
                     new_bucket_count += container.bucket_count();
                 }
                 else
@@ -1002,7 +1002,7 @@ void HashedDictionary<dictionary_key_type, sparse, sharded>::calculateBytesAlloc
 
             if constexpr (sparse)
             {
-                bytes_allocated += container.size() * (sizeof(KeyType));
+                bytes_allocated += container.bucket_count() * (sizeof(KeyType));
                 new_bucket_count += container.bucket_count();
             }
             else
