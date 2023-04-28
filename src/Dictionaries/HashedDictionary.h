@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <variant>
 #include <optional>
@@ -31,6 +32,57 @@ struct HashedDictionaryConfiguration
     const bool require_nonempty;
     const DictionaryLifetime lifetime;
 };
+
+template <class T>
+class HashedDictionaryAllocator
+{
+public:
+    using value_type = T;
+    using size_type = uint64_t;
+    using difference_type = ptrdiff_t;
+
+    using pointer = T*;
+    using const_pointer = const T*;
+    using reference = T&;
+    using const_reference = const T&;
+
+    HashedDictionaryAllocator() {}
+    HashedDictionaryAllocator(const HashedDictionaryAllocator<T> &) {}
+    ~HashedDictionaryAllocator() {}
+
+    template <class U>
+    explicit HashedDictionaryAllocator(const HashedDictionaryAllocator<U> &) {}
+
+    [[nodiscard]] T * allocate(size_t n)
+    {
+        return reinterpret_cast<T *>(allocator.alloc(sizeof(T) * n));
+    }
+    void deallocate(T * ptr, size_t n) noexcept
+    {
+        allocator.free(ptr, sizeof(T) * n);
+    }
+
+    void construct(T * p, const T& val) { new (p) T(val); }
+    void destroy(T * p) { p->~T(); }
+
+    size_type max_size() const { return static_cast<size_type>(-1) / sizeof(value_type); }
+
+private:
+    Allocator<false, false> allocator;
+
+    void operator=(const HashedDictionaryAllocator<T> &);
+};
+template <class T>
+inline bool operator==(const HashedDictionaryAllocator<T>&,
+                       const HashedDictionaryAllocator<T>&) {
+    return true;
+}
+template <class T>
+inline bool operator!=(const HashedDictionaryAllocator<T>&,
+                       const HashedDictionaryAllocator<T>&) {
+    return false;
+}
+
 
 template <DictionaryKeyType dictionary_key_type, bool sparse, bool sharded>
 class ParallelDictionaryLoader;
@@ -160,10 +212,10 @@ private:
     template <typename Value>
     using CollectionTypeSparse = std::conditional_t<
         dictionary_key_type == DictionaryKeyType::Simple,
-        google::sparse_hash_map<UInt64, Value, DefaultHash<KeyType>>,
-        google::sparse_hash_map<StringRef, Value, DefaultHash<KeyType>>>;
+        google::sparse_hash_map<UInt64, Value, DefaultHash<KeyType>, std::equal_to<UInt64>, HashedDictionaryAllocator<std::pair<const UInt64, Value>>>,
+        google::sparse_hash_map<StringRef, Value, DefaultHash<KeyType>, std::equal_to<StringRef>, HashedDictionaryAllocator<std::pair<const StringRef, Value>>>>;
 
-    using NoAttributesCollectionTypeSparse = google::sparse_hash_set<KeyType, DefaultHash<KeyType>>;
+    using NoAttributesCollectionTypeSparse = google::sparse_hash_set<KeyType, DefaultHash<KeyType>, std::equal_to<KeyType>, HashedDictionaryAllocator<KeyType>>;
 
     template <typename Value>
     using CollectionType = std::conditional_t<sparse, CollectionTypeSparse<Value>, CollectionTypeNonSparse<Value>>;
