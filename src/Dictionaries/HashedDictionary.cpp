@@ -211,10 +211,24 @@ HashedDictionary<dictionary_key_type, sparse, sharded>::HashedDictionary(
     , configuration(configuration_)
     , update_field_loaded_block(std::move(update_field_loaded_block_))
 {
+    size_t memory_usage_before = 0;
+    /// Use query-level memory tracker
+    if (auto * memory_tracker_child = CurrentThread::getMemoryTracker())
+        if (auto * memory_tracker = memory_tracker_child->getParent())
+            memory_usage_before = memory_tracker->get();
+
     createAttributes();
     loadData();
     buildHierarchyParentToChildIndexIfNeeded();
+
+    size_t memory_usage_after = 0;
+    if (auto * memory_tracker_child = CurrentThread::getMemoryTracker())
+        if (auto * memory_tracker = memory_tracker_child->getParent())
+            memory_usage_after = memory_tracker->get();
+    LOG_TRACE(log, "Memory usage: {}", memory_usage_after - memory_usage_before);
+
     calculateBytesAllocated();
+
 }
 
 template <DictionaryKeyType dictionary_key_type, bool sparse, bool sharded>
