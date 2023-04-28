@@ -213,8 +213,10 @@ HashedDictionary<dictionary_key_type, sparse, sharded>::HashedDictionary(
     , update_field_loaded_block(std::move(update_field_loaded_block_))
 {
     MemoryTracker * memory_tracker = CurrentThread::getMemoryTracker();
+#if 0
     if (auto * memory_tracker_parent = memory_tracker->getParent(); memory_tracker_parent && memory_tracker_parent != &total_memory_tracker)
         memory_tracker = memory_tracker_parent;
+#endif
     size_t memory_usage_before = memory_tracker->get();
 
     createAttributes();
