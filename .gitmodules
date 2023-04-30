@@ -90,7 +90,7 @@
 	url = https://github.com/ClickHouse/orc
 [submodule "contrib/sparsehash-c11"]
 	path = contrib/sparsehash-c11
-	url = https://github.com/sparsehash/sparsehash-c11
+	url = https://github.com/azat-archive/sparsehash-c11
 [submodule "contrib/grpc"]
 	path = contrib/grpc
 	url = https://github.com/ClickHouse/grpc
