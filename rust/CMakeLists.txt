@@ -67,5 +67,4 @@ function(add_rust_subdirectory src)
         VERBATIM)
 endfunction()
 
-add_rust_subdirectory (BLAKE3)
 add_rust_subdirectory (skim)

@@ -4,6 +4,7 @@
 #include <farmhash.h>
 #include <metrohash.h>
 #include <wyhash.h>
+#include <llvm/ADT/StringRef.h>
 #include <MurmurHash2.h>
 #include <MurmurHash3.h>
 
@@ -14,10 +15,6 @@
 #    pragma clang diagnostic ignored "-Wused-but-marked-unused"
 #endif
 #include <xxhash.h>
-
-#if USE_BLAKE3
-#    include <blake3.h>
-#endif
 
 #include <Common/SipHash.h>
 #include <Common/typeid_cast.h>
@@ -56,6 +53,10 @@
 #include <base/range.h>
 #include <base/bit_cast.h>
 #include <base/unaligned.h>
+
+#if USE_BLAKE3
+#include <llvm-c/blake3.h>
+#endif
 
 namespace DB
 {
@@ -819,18 +820,10 @@ struct ImplBLAKE3
     #else
     static void apply(const char * begin, const size_t size, unsigned char* out_char_data)
     {
-        #if defined(MEMORY_SANITIZER)
-            auto err_msg = blake3_apply_shim_msan_compat(begin, safe_cast<uint32_t>(size), out_char_data);
-            __msan_unpoison(out_char_data, length);
-        #else
-            auto err_msg = blake3_apply_shim(begin, safe_cast<uint32_t>(size), out_char_data);
-        #endif
-        if (err_msg != nullptr)
-        {
-            auto err_st = std::string(err_msg);
-            blake3_free_char_pointer(err_msg);
-            throw Exception(ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function returned error message: {}", err_st);
-        }
+        llvm_blake3_hasher hasher;
+        llvm_blake3_hasher_init(&hasher);
+        llvm_blake3_hasher_update(&hasher, begin, size);
+        llvm_blake3_hasher_finalize(&hasher, out_char_data, length);
     }
     #endif
 };
