@@ -22,6 +22,7 @@ PartitionPruner::PartitionPruner(const StorageMetadataPtr & metadata, const Sele
     , partition_condition(buildKeyCondition(partition_key, query_info, context, strict))
     , useless(strict ? partition_condition.anyUnknownOrAlwaysTrue() : partition_condition.alwaysUnknownOrTrue())
 {
+    LOG_TEST(&Poco::Logger::get("PartitionPruner"), "{}: condition={}", __func__, partition_condition.getDescription().condition);
 }
 
 bool PartitionPruner::canBePruned(const IMergeTreeDataPart & part)
@@ -51,12 +52,9 @@ bool PartitionPruner::canBePruned(const IMergeTreeDataPart & part)
             partition_value.size(), index_value.data(), index_value.data(), partition_key.data_types);
         partition_filter_map.emplace(partition_id, is_valid);
 
-        if (!is_valid)
-        {
-            WriteBufferFromOwnString buf;
-            part.partition.serializeText(part.storage, buf, FormatSettings{});
-            LOG_TRACE(&Poco::Logger::get("PartitionPruner"), "Partition {} gets pruned", buf.str());
-        }
+        WriteBufferFromOwnString buf;
+        part.partition.serializeText(part.storage, buf, FormatSettings{});
+        LOG_TRACE(&Poco::Logger::get("PartitionPruner"), "Partition {}: {}", buf.str(), !is_valid ? "prunned" : "kept");
     }
 
     return !is_valid;

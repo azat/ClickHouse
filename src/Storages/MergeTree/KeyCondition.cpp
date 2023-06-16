@@ -1343,6 +1343,8 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctions(
     std::vector<RPNBuilderFunctionTreeNode> chain_not_tested_for_monotonicity;
     DataTypePtr key_column_type;
 
+    LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: node={} ...", __func__, node.getASTNode() ? queryToString(*node.getASTNode()) : "<nullptr>");
+
     if (!isKeyPossiblyWrappedByMonotonicFunctionsImpl(node, out_key_column_num, key_column_type, chain_not_tested_for_monotonicity))
         return false;
 
@@ -1393,6 +1395,7 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctions(
 
     out_key_res_column_type = key_column_type;
 
+    LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: node={} (YES)", __func__, node.getASTNode() ? queryToString(*node.getASTNode()) : "<nullptr>");
     return true;
 }
 
