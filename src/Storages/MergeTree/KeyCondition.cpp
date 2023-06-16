@@ -1445,9 +1445,16 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctionsImpl(
                 it = key_columns.find(name);
                 if (key_columns.end() != it)
                 {
-                    out_key_column_num = it->second;
-                    out_key_column_type = sample_block.getByName(it->first).type;
-                    return true;
+                    const auto & type = sample_block.getByName(it->first).type;
+                    /// module() and moduleLegacy() has different result for
+                    /// signed types, hence module() could treated as
+                    /// moduleLegacy() only for unsigned types.
+                    if (type->isValueRepresentedByUnsignedInteger())
+                    {
+                        out_key_column_num = it->second;
+                        out_key_column_type = type;
+                        return true;
+                    }
                 }
             }
         }
