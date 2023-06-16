@@ -1,0 +1,32 @@
+0	foo51	foo97	5
+1	foo30	foo83	5
+2	foo23	foo98	11
+3	foo28	foo84	7
+4	foo40	foo86	3
+5	foo44	foo74	2
+6	foo10	foo92	7
+7	foo18	foo93	7
+8	foo42	foo42	1
+9	foo78	foo99	3
+10	foo20	foo94	4
+11	foo26	foo80	3
+12	foo12	foo96	8
+13	foo22	foo95	4
+14	foo13	foo57	6
+15	foo14	foo91	7
+16	foo1	foo89	7
+17	foo27	foo67	2
+18	foo0	foo31	4
+19	foo45	foo8	4
+      MinMax
+        Parts: 16/20
+      Partition
+        Parts: 1/16
+      MinMax
+        Parts: 16/20
+      Partition
+        Parts: 16/16
+      MinMax
+        Parts: 18/20
+      Partition
+        Parts: 18/18
