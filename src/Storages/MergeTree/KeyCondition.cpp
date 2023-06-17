@@ -30,6 +30,7 @@
 #include <Storages/MergeTree/MergeTreeIndexUtils.h>
 
 #include <base/defines.h>
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <cassert>
@@ -1435,6 +1436,15 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctionsImpl(
     {
         out_key_column_num = it->second;
         out_key_column_type = sample_block.getByName(it->first).type;
+        return true;
+    }
+
+    /// TODO: sort order
+    if (key_expr->getRequiredColumns() == Names{name})
+    {
+        LOG_TEST(&Poco::Logger::get(__FILE__), "{}: required_clumns={}, name={}", __func__, fmt::join(key_expr->getRequiredColumns(), ","), name);
+        out_key_column_num = 0;
+        out_key_column_type = sample_block.getByPosition(0).type;
         return true;
     }
 
