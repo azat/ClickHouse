@@ -291,7 +291,10 @@ ConstSetPtr tryGetSetFromDAGNode(const ActionsDAG::Node * dag_node)
         auto set = column_set->getData();
 
         if (set && set->isCreated())
+        {
+            LOG_TEST(&Poco::Logger::get("RPNBuilder"), "{}: set: {}", __func__, set->getTotalRowCount());
             return set;
+        }
     }
 
     return {};
@@ -336,7 +339,9 @@ ConstSetPtr RPNBuilderTreeNode::tryGetPreparedSet(const DataTypes & data_types) 
         if (ast_node->as<ASTSubquery>() || ast_node->as<ASTTableIdentifier>())
             return prepared_sets->get(PreparedSetKey::forSubquery(*ast_node));
 
-        return prepared_sets->get(PreparedSetKey::forLiteral(*ast_node, data_types));
+        auto set = prepared_sets->get(PreparedSetKey::forLiteral(*ast_node, data_types));
+        LOG_TEST(&Poco::Logger::get("RPNBuilder"), "{}: set: {}", __func__, set->getTotalRowCount());
+        return set;
     }
     else if (dag_node)
     {
@@ -381,7 +386,11 @@ ConstSetPtr RPNBuilderTreeNode::tryGetPreparedSet(
         for (const auto & set : prepared_sets->getByTreeHash(tree_hash))
         {
             if (set.isCreated() && types_match(set.get()))
-                return set.get();
+            {
+                auto ready_set = set.get();
+                LOG_TEST(&Poco::Logger::get("RPNBuilder"), "{}: set: {}", __func__, ready_set->getTotalRowCount());
+                return ready_set;
+            }
         }
     }
     else
