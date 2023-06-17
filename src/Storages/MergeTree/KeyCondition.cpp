@@ -1196,6 +1196,8 @@ bool KeyCondition::tryPrepareSetIndex(
 {
     const auto & left_arg = func.getArgumentAt(0);
 
+    LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: dag={}, node={} ...", __func__, func.getDAGNode() ? func.getDAGNode()->result_name : "<nullptr dag>", func.getASTNode() ? queryToString(*func.getASTNode()) : "<nullptr ast>");
+
     out_key_column_num = 0;
     std::vector<MergeTreeSetIndex::KeyTuplePositionMapping> indexes_mapping;
     DataTypes data_types;
@@ -1343,17 +1345,23 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctions(
     std::vector<RPNBuilderFunctionTreeNode> chain_not_tested_for_monotonicity;
     DataTypePtr key_column_type;
 
-    LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: node={} ...", __func__, node.getASTNode() ? queryToString(*node.getASTNode()) : "<nullptr>");
+    LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: dag={}, node={} ...", __func__, node.getDAGNode() ? node.getDAGNode()->result_name : "<nullptr dag>", node.getASTNode() ? queryToString(*node.getASTNode()) : "<nullptr ast>");
 
     if (!isKeyPossiblyWrappedByMonotonicFunctionsImpl(node, out_key_column_num, key_column_type, chain_not_tested_for_monotonicity))
+    {
+        LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: NO#1", __func__);
         return false;
+    }
 
     for (auto it = chain_not_tested_for_monotonicity.rbegin(); it != chain_not_tested_for_monotonicity.rend(); ++it)
     {
         auto function = *it;
         auto func_builder = FunctionFactory::instance().tryGet(function.getFunctionName(), node.getTreeContext().getQueryContext());
         if (!func_builder)
+        {
+            LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: NO#2", __func__);
             return false;
+        }
         ColumnsWithTypeAndName arguments;
         ColumnWithTypeAndName const_arg;
         FunctionWithOptionalConstArg::Kind kind = FunctionWithOptionalConstArg::Kind::NO_CONST;
@@ -1376,7 +1384,10 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctions(
 
             /// If constant arg of binary operator is NULL, there will be no monotonicity.
             if (const_arg.column->isNullAt(0))
+            {
+                LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: NO#3", __func__);
                 return false;
+            }
         }
         else
             arguments.push_back({ nullptr, key_column_type, "" });
@@ -1384,7 +1395,10 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctions(
 
         /// If we know the given range only contains one value, then we treat all functions as positive monotonic.
         if (!func || (!single_point && !func->hasInformationAboutMonotonicity()))
+        {
+            LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: NO#4", __func__);
             return false;
+        }
 
         key_column_type = func->getResultType();
         if (kind == FunctionWithOptionalConstArg::Kind::NO_CONST)
@@ -1395,7 +1409,7 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctions(
 
     out_key_res_column_type = key_column_type;
 
-    LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: node={} (YES)", __func__, node.getASTNode() ? queryToString(*node.getASTNode()) : "<nullptr>");
+    LOG_TEST(&Poco::Logger::get("KeyCondition"), "{}: YES", __func__);
     return true;
 }
 

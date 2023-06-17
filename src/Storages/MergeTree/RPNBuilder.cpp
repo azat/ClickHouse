@@ -1,6 +1,8 @@
 #include <Storages/MergeTree/RPNBuilder.h>
 
+#include "Common/logger_useful.h"
 #include <Common/FieldVisitorToString.h>
+#include "Parsers/queryToString.h"
 
 #include <Parsers/ASTLiteral.h>
 #include <Parsers/ASTIdentifier.h>
@@ -301,12 +303,18 @@ ConstSetPtr RPNBuilderTreeNode::tryGetPreparedSet() const
 {
     const auto & prepared_sets = getTreeContext().getPreparedSets();
 
+    LOG_TEST(&Poco::Logger::get("RPNBuilder"), "{}: dag={}, node={} ...", __func__, dag_node ? dag_node->result_name : "<nullptr dag>", ast_node ? queryToString(*ast_node) : "<nullptr ast>");
+
     if (ast_node && prepared_sets)
     {
         auto prepared_sets_with_same_hash = prepared_sets->getByTreeHash(ast_node->getTreeHash());
         for (auto & set : prepared_sets_with_same_hash)
             if (set.isCreated())
-                return set.get();
+            {
+                auto ready_set = set.get();
+                LOG_TEST(&Poco::Logger::get("RPNBuilder"), "{}: set: {}", __func__, ready_set->getTotalRowCount());
+                return ready_set;
+            }
     }
     else if (dag_node)
     {
@@ -320,6 +328,8 @@ ConstSetPtr RPNBuilderTreeNode::tryGetPreparedSet() const
 ConstSetPtr RPNBuilderTreeNode::tryGetPreparedSet(const DataTypes & data_types) const
 {
     const auto & prepared_sets = getTreeContext().getPreparedSets();
+
+    LOG_TEST(&Poco::Logger::get("RPNBuilder"), "{}: dag={}, node={} ...", __func__, dag_node ? dag_node->result_name : "<nullptr dag>", ast_node ? queryToString(*ast_node) : "<nullptr ast>");
 
     if (prepared_sets && ast_node)
     {
@@ -342,6 +352,8 @@ ConstSetPtr RPNBuilderTreeNode::tryGetPreparedSet(
     const DataTypes & data_types) const
 {
     const auto & prepared_sets = getTreeContext().getPreparedSets();
+
+    LOG_TEST(&Poco::Logger::get("RPNBuilder"), "{}: dag={}, node={} ...", __func__, dag_node ? dag_node->result_name : "<nullptr dag>", ast_node ? queryToString(*ast_node) : "<nullptr ast>");
 
     if (prepared_sets && ast_node)
     {
