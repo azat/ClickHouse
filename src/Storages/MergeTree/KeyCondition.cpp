@@ -1443,9 +1443,17 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctionsImpl(
     if (key_expr->getRequiredColumns() == Names{name})
     {
         LOG_TEST(&Poco::Logger::get(__FILE__), "{}: required_clumns={}, name={}", __func__, fmt::join(key_expr->getRequiredColumns(), ","), name);
-        out_key_column_num = 0;
-        out_key_column_type = sample_block.getByPosition(0).type;
-        return true;
+
+        for (const auto & column : sample_block)
+        {
+            if (column.name == name)
+                continue;
+
+            LOG_TEST(&Poco::Logger::get(__FILE__), "{}: name={}", __func__, column.name);
+            out_key_column_num = key_columns.find(column.name)->second;
+            out_key_column_type = sample_block.getByName(column.name).type;
+            return true;
+        }
     }
 
     if (node.isFunction())
