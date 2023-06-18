@@ -1439,6 +1439,7 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctionsImpl(
         return true;
     }
 
+#if 0
     /// TODO: sort order
     if (key_expr->getRequiredColumns() == Names{name})
     {
@@ -1455,6 +1456,7 @@ bool KeyCondition::isKeyPossiblyWrappedByMonotonicFunctionsImpl(
             return true;
         }
     }
+#endif
 
     if (node.isFunction())
     {
