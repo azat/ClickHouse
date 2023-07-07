@@ -157,8 +157,38 @@ static bool jemallocOptionEnabled(const char *name)
 
     return value;
 }
+static unsigned jemallocGetArenas()
+{
+    unsigned narenas;
+    size_t sz = sizeof(unsigned);
+
+    if (mallctl("arenas.narenas", &narenas, &sz, nullptr, 0))
+        return UINT_MAX;
+
+    return narenas;
+}
+static bool jemallocSetRetainGrowLimit(size_t arena, size_t new_limit, size_t & old_limit)
+{
+    size_t mib[3];
+    size_t miblen;
+
+    size_t sz = sizeof(old_limit);
+    miblen = sizeof(mib)/sizeof(size_t);
+
+    if (mallctlnametomib(fmt::format("arena.{}.retain_grow_limit", arena).c_str(), mib, &miblen))
+        return false;
+
+    if (mallctlbymib(mib, miblen, &old_limit, &sz, nullptr, 0))
+        return false;
+
+    if (mallctlbymib(mib, miblen, nullptr, nullptr, &new_limit, sizeof(new_limit)))
+        return false;
+
+    return true;
+}
 #else
 static bool jemallocOptionEnabled(const char *) { return 0; }
+static bool jemallocSetRetainGrowLimit(size_t, size_t, size_t) { return true; }
 #endif
 
 int mainEntryClickHouseServer(int argc, char ** argv)
@@ -652,6 +682,37 @@ try
 #if defined(SANITIZER)
     global_context->addWarningMessage("Server was built with sanitizer. It will work slowly.");
 #endif
+
+    /// Limit amount of retained memory
+    unsigned narenas = jemallocGetArenas();
+    if (narenas == UINT_MAX)
+    {
+        LOG_ERROR(log, "jemalloc: cannot get number of arenas");
+    }
+    else
+    {
+        LOG_INFO(log, "jemalloc: number of arenas: {}", narenas);
+
+        for (unsigned arena = 0; arena < narenas; ++arena)
+        {
+            size_t new_retain_grow_limit = 128 << 20;
+            size_t old_retain_grow_limit = 0;
+
+            if (jemallocSetRetainGrowLimit(arena, new_retain_grow_limit, old_retain_grow_limit))
+            {
+                LOG_INFO(log,
+                    "jemalloc: arena={}: retain_grow_limit had been set to {} (old: {})",
+                    arena, new_retain_grow_limit, old_retain_grow_limit);
+            }
+            else
+            {
+                // FIXME: some arenas are not created yet, and it is not easy to force jemalloc to do so.
+                LOG_ERROR(log,
+                    "jemalloc: arena={}: cannot set retain_grow_limit to {} (old: {}): {}, this may lead to a greater memory fragmentation",
+                    arena, new_retain_grow_limit, old_retain_grow_limit, errnoToString());
+            }
+        }
+    }
 
     const auto memory_amount = getMemoryAmount();
 
