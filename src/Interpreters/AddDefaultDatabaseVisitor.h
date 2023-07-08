@@ -185,6 +185,7 @@ private:
                 {
                     if (is_dict_get && i == 0)
                     {
+                        const auto & original_column_name = function.getAliasOrColumnName();
                         if (auto * identifier = child->children[i]->as<ASTIdentifier>())
                         {
                             /// Identifier already qualified
@@ -193,6 +194,7 @@ private:
 
                             auto qualified_dictionary_name = context->getExternalDictionariesLoader().qualifyDictionaryNameWithDatabase(identifier->name(), context);
                             child->children[i] = std::make_shared<ASTIdentifier>(qualified_dictionary_name.getParts());
+                            function.setAlias(original_column_name);
                         }
                         else if (auto * literal = child->children[i]->as<ASTLiteral>())
                         {
@@ -204,6 +206,7 @@ private:
                             auto dictionary_name = literal_value.get<String>();
                             auto qualified_dictionary_name = context->getExternalDictionariesLoader().qualifyDictionaryNameWithDatabase(dictionary_name, context);
                             literal_value = qualified_dictionary_name.getFullName();
+                            function.setAlias(original_column_name);
                         }
                     }
                     else if (is_operator_in && i == 1)

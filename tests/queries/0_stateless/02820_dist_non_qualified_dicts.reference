@@ -1,0 +1,16 @@
+-- { echoOn }
+SELECT *, dictGet(currentDatabase() || '.dict', 'value', key) FROM dist;
+1	one	one
+2	two	two
+1	one	one
+2	two	two
+SELECT *, dictGet('dict', 'value', key) FROM dist;
+1	one	one
+2	two	two
+1	one	one
+2	two	two
+SELECT *, dictGet('dict', 'value', key) AS a FROM dist;
+1	one	one
+2	two	two
+1	one	one
+2	two	two
