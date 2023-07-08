@@ -16,6 +16,7 @@ LAYOUT(FLAT())
 LIFETIME(0);
 
 -- { echoOn }
-SELECT *, dictGet(currentDatabase() || '.dict', 'value', key) FROM dist;
-SELECT *, dictGet('dict', 'value', key) FROM dist;
-SELECT *, dictGet('dict', 'value', key) AS a FROM dist;
+SELECT *, dictGet(currentDatabase() || '.dict', 'value', key) FROM dist ORDER BY key;
+SELECT *, dictGet('dict', 'value', key) FROM dist ORDER BY key;
+SELECT *, dictGet('dict', 'value', key) AS a FROM dist ORDER BY key;
+SELECT DISTINCT dictGet('dict', 'value', key) AS a FROM dist ORDER BY a;

@@ -83,6 +83,7 @@ ASTPtr rewriteSelectQuery(
         /* only_replace_current_database_function_= */false,
         /* only_replace_in_join_= */true);
     visitor.visit(modified_query_ast);
+    /// FIXME: instead of rewrite current database should be sent?
 
     return modified_query_ast;
 }
