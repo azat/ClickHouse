@@ -110,6 +110,16 @@ struct StorageKafkaInterceptors
         std::lock_guard lock(self->thread_statuses_mutex);
         self->thread_statuses.emplace_back(std::move(thread_status));
 
+        /// Due to [1], librdkafka leaves the threads with all blocked signals,
+        /// we need to reinitialize them (at least to make system.stack_trace
+        /// work)
+        ///
+        ///   [1]: https://github.com/confluentinc/librdkafka/issues/78
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigprocmask(0, nullptr, &mask); // NOLINT(concurrency-mt-unsafe)
+        sigprocmask(SIG_UNBLOCK, &mask, nullptr); // NOLINT(concurrency-mt-unsafe)
+
         return RD_KAFKA_RESP_ERR_NO_ERROR;
     }
     static rd_kafka_resp_err_t rdKafkaOnThreadExit(rd_kafka_t *, rd_kafka_thread_type_t, const char *, void * ctx)
