@@ -3,7 +3,7 @@
 #include <fmt/ostream.h>
 
 #include <Storages/Kafka/KafkaConsumer.h>
-#include <IO/ReadBufferFromMemory.h>
+#include <IO/ReadBufferFromMemoryIterable.h>
 
 #include <Common/logger_useful.h>
 
@@ -38,6 +38,20 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int CANNOT_COMMIT_OFFSET;
+}
+
+namespace ReadBufferFromMemoryIterableDetails
+{
+
+template <> const char * get_element_data(const cppkafka::Message & element)
+{
+    return reinterpret_cast<const char *>(element.get_payload().get_data());
+}
+template <> size_t get_element_size(const cppkafka::Message & element)
+{
+    return element.get_payload().get_size();
+}
+
 }
 
 using namespace std::chrono_literals;
@@ -527,15 +541,7 @@ ReadBufferPtr KafkaConsumer::getNextMessage()
 {
     if (current == messages.end())
         return nullptr;
-
-    const auto * data = current->get_payload().get_data();
-    size_t size = current->get_payload().get_size();
-    ++current;
-
-    if (data)
-        return std::make_shared<ReadBufferFromMemory>(data, size);
-
-    return getNextMessage();
+    return std::make_shared<ReadBufferFromMemoryIterable<decltype(current)>>(current, messages.cend());
 }
 
 size_t KafkaConsumer::filterMessageErrors()

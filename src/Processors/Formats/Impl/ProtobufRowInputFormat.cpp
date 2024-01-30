@@ -59,6 +59,11 @@ try
     row_read_extension.read_columns.resize(columns.size(), true);
     for (size_t column_idx : missing_column_indices)
         row_read_extension.read_columns[column_idx] = false;
+
+    /// Next time we will read new message
+    if (in->eof() && !with_length_delimiter)
+        in->nextRow();
+
     return true;
 }
 catch (...)

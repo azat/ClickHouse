@@ -82,6 +82,8 @@ public:
         return res;
     }
 
+    virtual bool nextRow() { return false; }
+
 
     inline void nextIfAtEnd()
     {
