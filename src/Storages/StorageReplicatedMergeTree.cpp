@@ -8962,7 +8962,7 @@ bool StorageReplicatedMergeTree::canUseAdaptiveGranularity() const
 }
 
 
-std::map<int64_t, MutationCommands> StorageReplicatedMergeTree::getAlterMutationCommandsForPart(const DataPartPtr & part) const
+std::vector<MutationCommands> StorageReplicatedMergeTree::getAlterMutationCommandsForPart(const DataPartPtr & part) const
 {
     return queue.getAlterMutationCommandsForPart(part);
 }
