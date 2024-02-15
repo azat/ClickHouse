@@ -341,7 +341,26 @@ SplitPartsRangesResult splitPartsRanges(RangesInDataParts ranges_in_data_parts, 
         if (range_start)
         {
             auto [it, inserted] = part_index_start_to_range.emplace(current_part_range.part_index, current_part_range.range);
-            chassert(inserted);
+            if (!inserted)
+            {
+                /** When we sort part ranges, Range Start event is always placed before Range End event.
+                  * For ranges in different parts this logic is correct, but for ranges inside same part we want to
+                  * process Range End event always before Range Start event.
+                  *
+                  * We cannot embed this logic in our sort comparator, because it will invalidate comparator strict weak ordering guarantees.
+                  *
+                  * If we encounter Range Start event and we already started to process range from this part, we apply the same logic as we already
+                  * entered previous range Range End event.
+                  *
+                  * When we process Range End event, we additionally check if range was processed by this logic.
+                  */
+                if (intersecting_parts != 1 || ranges_in_data_parts[current_part_range.part_index].data_part->info.level == 0)
+                    add_intersecting_range(current_part_range.part_index, part_index_start_to_range[current_part_range.part_index]);
+                else
+                    add_non_intersecting_range(current_part_range.part_index, it->second);
+
+                it->second = current_part_range.range;
+            }
 
             if (intersecting_parts != 1)
                 continue;
@@ -413,6 +432,10 @@ SplitPartsRangesResult splitPartsRanges(RangesInDataParts ranges_in_data_parts, 
         }
 
         chassert(current_part_range.event == PartsRangesIterator::EventType::RangeEnd);
+        chassert(part_index_start_to_range.contains(current_part_range.part_index));
+
+        if (part_index_start_to_range[current_part_range.part_index] != current_part_range.range)
+            continue;
 
         /** If there are more than 1 part ranges that we are currently processing
           * that means that this part range is intersecting with other range.
@@ -432,7 +455,7 @@ SplitPartsRangesResult splitPartsRanges(RangesInDataParts ranges_in_data_parts, 
             chassert(current_part_range.range == previous_part_range.range);
 
             /// Case 3 Range End after Range Start
-            non_intersecting_ranges_in_data_parts_builder.addRange(current_part_range.part_index, current_part_range.range);
+            add_non_intersecting_range(current_part_range.part_index, current_part_range.range);
             part_index_start_to_range.erase(current_part_range.part_index);
             continue;
         }
