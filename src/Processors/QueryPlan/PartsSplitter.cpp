@@ -224,7 +224,7 @@ struct PartsRangesIterator
         buffer << " value " << ::toString(value) << '\n';
     }
 
-    String toString() const
+    [[maybe_unused]] String toString() const
     {
         WriteBufferFromOwnString buffer;
         dump(buffer);
