@@ -24,6 +24,7 @@
 #include <libunwind.h>
 
 #include <boost/algorithm/string/split.hpp>
+#include <sys/ucontext.h>
 
 #if defined(OS_DARWIN)
 /// This header contains functions like `backtrace` and `backtrace_symbols`
@@ -185,34 +186,141 @@ std::string signalToErrorMessage(int sig, const siginfo_t & info, [[maybe_unused
     }
 }
 
-static void * getCallerAddress(const ucontext_t & context)
+/// Unwind from the return location of signal handler.
+/// This will eliminite useless frames and make unwinding more robust, due to
+/// possible issues like:
+/// - sigaltstack
+/// - CFA for signal handler frame
+/// - signal handler marker in DWARF (S)
+///
+/// Based on:
+/// - llvm libunwind.h
+/// - glibc::**/ucontext.h
+/// - GNU libunwind
+/// - freebsd-src::**/ucontext.h
+/// - linux::**/*ucontext*.h
+static void mContextToUnwindCursor(const mcontext_t & mctx, unw_cursor_t * cursor)
 {
-#if defined(__x86_64__)
-    /// Get the address at the time the signal was raised from the RIP (x86-64)
-#    if defined(OS_FREEBSD)
-    return reinterpret_cast<void *>(context.uc_mcontext.mc_rip);
-#    elif defined(OS_DARWIN)
-    return reinterpret_cast<void *>(context.uc_mcontext->__ss.__rip);
-#    else
-    return reinterpret_cast<void *>(context.uc_mcontext.gregs[REG_RIP]);
-#    endif
-#elif defined(OS_DARWIN) && defined(__aarch64__)
-    return reinterpret_cast<void *>(context.uc_mcontext->__ss.__pc);
+    auto set_ip = [](unw_cursor_t * c, const uint64_t v)
+    {
+        chassert(v != 0);
+        /// IP saved in the signal handler points to first non-executed
+        /// instruction, while .eh_frame expects IP to be after the first
+        /// non-executed instruction (see --pc in libunwind implementations),
+        /// so we need to add 1.
+        unw_set_reg(c, UNW_REG_IP, v + 1);
+    };
+
+#if defined(__x86_64__) && defined(OS_FREEBSD)
+    unw_set_reg(cursor, UNW_X86_64_RAX, mctx.mc_rax);
+    unw_set_reg(cursor, UNW_X86_64_RDX, mctx.mc_rdx);
+    unw_set_reg(cursor, UNW_X86_64_RCX, mctx.mc_rcx);
+    unw_set_reg(cursor, UNW_X86_64_RBX, mctx.mc_rbx);
+    unw_set_reg(cursor, UNW_X86_64_RSI, mctx.mc_rsi);
+    unw_set_reg(cursor, UNW_X86_64_RDI, mctx.mc_rdi);
+    unw_set_reg(cursor, UNW_X86_64_RBP, mctx.mc_rbp);
+    unw_set_reg(cursor, UNW_X86_64_R8, mctx.mc_r8);
+    unw_set_reg(cursor, UNW_X86_64_R9, mctx.mc_r9);
+    unw_set_reg(cursor, UNW_X86_64_R10, mctx.mc_r10);
+    unw_set_reg(cursor, UNW_X86_64_R11, mctx.mc_r11);
+    unw_set_reg(cursor, UNW_X86_64_R12, mctx.mc_r12);
+    unw_set_reg(cursor, UNW_X86_64_R13, mctx.mc_r13);
+    unw_set_reg(cursor, UNW_X86_64_R14, mctx.mc_r14);
+    unw_set_reg(cursor, UNW_X86_64_R15, mctx.mc_r15);
+    unw_set_reg(cursor, UNW_REG_SP, mctx.mc_rsp);
+    set_ip(cursor, mctx.mc_rip);
+#elif defined(__x86_64__) && defined(__linux__)
+    unw_set_reg(cursor, UNW_X86_64_RAX, mctx.gregs[REG_RAX]);
+    unw_set_reg(cursor, UNW_X86_64_RDX, mctx.gregs[REG_RDX]);
+    unw_set_reg(cursor, UNW_X86_64_RCX, mctx.gregs[REG_RCX]);
+    unw_set_reg(cursor, UNW_X86_64_RBX, mctx.gregs[REG_RBX]);
+    unw_set_reg(cursor, UNW_X86_64_RSI, mctx.gregs[REG_RSI]);
+    unw_set_reg(cursor, UNW_X86_64_RDI, mctx.gregs[REG_RDI]);
+    unw_set_reg(cursor, UNW_X86_64_RBP, mctx.gregs[REG_RBP]);
+    unw_set_reg(cursor, UNW_X86_64_R8, mctx.gregs[REG_R8]);
+    unw_set_reg(cursor, UNW_X86_64_R9, mctx.gregs[REG_R9]);
+    unw_set_reg(cursor, UNW_X86_64_R10, mctx.gregs[REG_R10]);
+    unw_set_reg(cursor, UNW_X86_64_R11, mctx.gregs[REG_R11]);
+    unw_set_reg(cursor, UNW_X86_64_R12, mctx.gregs[REG_R12]);
+    unw_set_reg(cursor, UNW_X86_64_R13, mctx.gregs[REG_R13]);
+    unw_set_reg(cursor, UNW_X86_64_R14, mctx.gregs[REG_R14]);
+    unw_set_reg(cursor, UNW_X86_64_R15, mctx.gregs[REG_R15]);
+    unw_set_reg(cursor, UNW_REG_SP, mctx.gregs[REG_RSP]);
+    set_ip(cursor, mctx.gregs[REG_RIP]);
+#elif defined(__i386__) && defined(__linux__)
+    unw_set_reg(cursor, UNW_X86_EAX, mctx.gregs[REG_EAX]);
+    unw_set_reg(cursor, UNW_X86_EDX, mctx.gregs[REG_EDX]);
+    unw_set_reg(cursor, UNW_X86_ECX, mctx.gregs[REG_ECX]);
+    unw_set_reg(cursor, UNW_X86_EBX, mctx.gregs[REG_EBX]);
+    unw_set_reg(cursor, UNW_X86_ESI, mctx.gregs[REG_ESI]);
+    unw_set_reg(cursor, UNW_X86_EDI, mctx.gregs[REG_EDI]);
+    unw_set_reg(cursor, UNW_X86_EBP, mctx.gregs[REG_EBP]);
+    unw_set_reg(cursor, UNW_REG_SP, mctx.gregs[REG_ESP]);
+    set_ip(cursor, mctx.gregs[REG_EIP]);
 #elif defined(OS_FREEBSD) && defined(__aarch64__)
-    return reinterpret_cast<void *>(context.uc_mcontext.mc_gpregs.gp_elr);
+    static_assert(UNW_AARCH64_X0 == 0);
+    for (int i = 0; i <= 30; ++i)
+        unw_set_reg(cursor, i, mctx.mc_gpregs.gp_x[i]);
+    unw_set_reg(cursor, UNW_REG_SP, mctx.mc_gpregs.gp_sp);
+    set_ip(cursor, mctx.mc_gpregs.gp_elr);
 #elif defined(__aarch64__)
-    return reinterpret_cast<void *>(context.uc_mcontext.pc);
+    static_assert(UNW_AARCH64_X0 == 0);
+    for (int i = 0; i <= 32; ++i)
+        unw_set_reg(cursor, i, mctx.regs[i]);
+    set_ip(cursor, mctx.pc);
 #elif defined(__powerpc64__) && defined(__linux__)
-    return reinterpret_cast<void *>(context.uc_mcontext.gp_regs[PT_NIP]);
+    static_assert(UNW_PPC64_R0 == 0);
+    /// UNW_PPC64_R1 is UNW_REG_SP
+    for (int i = 0; i <= 31; ++i)
+        unw_set_reg(cursor, i, mctx.regs[i]);
+    set_ip(cursor, mctx.gp_regs[PT_NIP]);
 #elif defined(__powerpc64__) && defined(__FreeBSD__)
-    return reinterpret_cast<void *>(context.uc_mcontext.mc_srr0);
+    static_assert(UNW_PPC64_R0 == 0);
+    /// UNW_PPC64_R1 is UNW_REG_SP
+    for (int i = 0; i <= 31; ++i)
+        unw_set_reg(cursor, i, mctx.mc_frame[i]);
+    set_ip(cursor, mctx.mc_srr0);
 #elif defined(__riscv)
-    return reinterpret_cast<void *>(context.uc_mcontext.__gregs[REG_PC]);
+    static_assert(UNW_RISCV_X0 == 0);
+    for (int i = 0; i <= 31; ++i)
+        unw_set_reg(cursor, i, mctx.regs[i]);
+    set_ip(cursor, mctx.__gregs[REG_PC]);
 #elif defined(__s390x__)
-    return reinterpret_cast<void *>(context.uc_mcontext.psw.addr);
+    static_assert(UNW_S390X_R0 == 0);
+    /// UNW_S390X_R15 is UNW_REG_SP
+    for (int i = 0; i <= 16; ++i)
+        unw_set_reg(cursor, i, mctx.regs[i]);
+    set_ip(cursor, mctx.psw.addr);
 #else
-    return nullptr;
+#error Signal-safe unwind is not supported for this architecture/OS.
 #endif
+}
+
+static int signalSafeBacktrace(void **buffer, int size, const ucontext_t * signal_context)
+{
+    unw_context_t context;
+    unw_cursor_t cursor;
+    if (unw_getcontext(&context) || unw_init_local(&cursor, &context))
+        return 0;
+
+    if (signal_context)
+    {
+        /// This variable from signal handler is not instrumented by Memory Sanitizer.
+        __msan_unpoison(&signal_context, sizeof(signal_context));
+        mContextToUnwindCursor(signal_context->uc_mcontext, &cursor);
+    }
+
+    unw_word_t ip;
+    int current = 0;
+    while (true) {
+        if (unw_step(&cursor) <= 0)
+            break;
+        if (current >= size || unw_get_reg(&cursor, UNW_REG_IP, &ip))
+            break;
+
+        buffer[current++] = reinterpret_cast<void *>(static_cast<uintptr_t>(ip));
+    }
+    return current;
 }
 
 void StackTrace::forEachFrame(
@@ -313,38 +421,15 @@ void StackTrace::forEachFrame(
 
 StackTrace::StackTrace(const ucontext_t & signal_context)
 {
-    tryCapture();
-
-    /// This variable from signal handler is not instrumented by Memory Sanitizer.
-    __msan_unpoison(&signal_context, sizeof(signal_context));
-
-    void * caller_address = getCallerAddress(signal_context);
-
-    if (size == 0 && caller_address)
-    {
-        frame_pointers[0] = caller_address;
-        size = 1;
-    }
-    else
-    {
-        /// Skip excessive stack frames that we have created while finding stack trace.
-        for (size_t i = 0; i < size; ++i)
-        {
-            if (frame_pointers[i] == caller_address)
-            {
-                offset = i;
-                break;
-            }
-        }
-    }
+    tryCapture(&signal_context);
 }
 
-void StackTrace::tryCapture()
+void StackTrace::tryCapture([[maybe_unused]] const ucontext_t * signal_context)
 {
 #if defined(OS_DARWIN)
     size = backtrace(frame_pointers.data(), capacity);
 #else
-    size = unw_backtrace(frame_pointers.data(), capacity);
+    size = signalSafeBacktrace(frame_pointers.data(), capacity, signal_context);
 #endif
     __msan_unpoison(frame_pointers.data(), size * sizeof(frame_pointers[0]));
 }

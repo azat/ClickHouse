@@ -44,7 +44,7 @@ public:
     using Frames = std::array<Frame, capacity>;
 
     /// Tries to capture stack trace
-    StackTrace() { tryCapture(); }
+    StackTrace() { tryCapture(/* signal_context= */ nullptr); }
 
     /// Tries to capture stack trace. Fallbacks on parsing caller address from
     /// signal context if no stack trace could be captured
@@ -79,7 +79,7 @@ public:
     static void setShowAddresses(bool show);
 
 protected:
-    void tryCapture();
+    void tryCapture(const ucontext_t * signal_context);
 
     size_t size = 0;
     size_t offset = 0;  /// How many frames to skip while displaying.
