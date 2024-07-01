@@ -103,6 +103,7 @@ static ColumnsDescription getStructureOfRemoteTableInShard(
 
     ParserExpression expr_parser;
 
+    executor.sendQuery();
     for (Block current = executor.readBlock(); !current.empty(); current = executor.readBlock())
     {
         current = convertBLOBColumns(current);

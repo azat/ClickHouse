@@ -303,28 +303,22 @@ RemoteQueryExecutor::RemoteQueryExecutor(
     };
 }
 
+/// Destructor should be written very carefully:
+/// - some functions may throw (i.e. cancel()/disconnect()), they should be
+///   wrapped with try/catch (you cannot use function-try-block because it will
+///   still throw)
+/// - RemoteQueryExecutorReadContext should be cancelled properly
+///   otherwise the fiber may leak, and this may case use-after-free, for TLS
+///   (i.e. current_thread), iff thread had been destroyed in between.
 RemoteQueryExecutor::~RemoteQueryExecutor()
 {
-    /// We should finish establishing connections to disconnect it later,
-    /// so these connections won't be in the out-of-sync state.
-    if (read_context && !established)
+#if defined(OS_LINUX)
+    if (read_context && !read_context->isCancelled() && !read_context->isFinished())
     {
-        /// Set was_cancelled, so the query won't be sent after creating connections.
-        was_cancelled = true;
-
-        /// Cancellation may throw (i.e. some timeout), and in case of pipeline
-        /// had not been properly created properly (EXCEPTION_BEFORE_START)
-        /// cancel will not be sent, so cancellation will be done from dtor and
-        /// will throw.
-        try
-        {
-            read_context->cancel();
-        }
-        catch (...)
-        {
-            tryLogCurrentException(log ? log : getLogger("RemoteQueryExecutor"));
-        }
+        LOG_FATAL(log, "Read context was neither cancelled nor finished. This is a bug");
+        abort();
     }
+#endif
 
     /** If interrupted in the middle of the loop of communication with replicas, then interrupt
       * all connections, then read and skip the remaining packets to make sure
@@ -438,6 +432,11 @@ void RemoteQueryExecutor::sendQueryUnlocked(ClientInfo::QueryKind query_kind, As
         finished = true;
         sent_query = true;
 
+#if defined(OS_LINUX)
+        if (read_context)
+            read_context->setFinished();
+#endif
+
         /// We need to tell the coordinator not to wait for this replica.
         if (extension && extension->parallel_reading_coordinator)
         {
@@ -541,26 +540,18 @@ Block RemoteQueryExecutor::readBlock()
 RemoteQueryExecutor::ReadResult RemoteQueryExecutor::read()
 {
     if (!sent_query)
-    {
-        sendQuery();
-
-        /// `connections` stays null if sendQuery() was cancelled before sending,
-        /// so guard the dereference below (as every other use of it does).
-        {
-            LockAndBlocker lock(was_cancelled_mutex);
-            if (was_cancelled)
-                return ReadResult(Block());
-        }
-
-        if (context->getSettingsRef()[Setting::skip_unavailable_shards] && (0 == connections->size()))
-            return ReadResult(Block());
-    }
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Query had not been sent");
 
     while (true)
     {
         LockAndBlocker lock(was_cancelled_mutex);
         if (was_cancelled)
+        {
+            /// Preliminary cancelling is possible from sendQuery(), need to cancel the context
+            if (read_context)
+                read_context->cancel();
             return ReadResult(Block());
+        }
 
         auto packet = connections->receivePacket();
         auto anything = processPacket(std::move(packet));
@@ -577,10 +568,17 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::read()
 
 RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAsync()
 {
+    if (!sent_query)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Query had not been sent");
+
 #if defined(OS_LINUX)
-    if (!read_context || (resent_query && recreate_read_context))
+    if (resent_query || !read_context)
     {
         LockAndBlocker lock(was_cancelled_mutex);
+
+        if (read_context)
+            read_context->cancel();
+
         if (was_cancelled)
             return ReadResult(Block());
 
@@ -588,14 +586,18 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAsync()
             *this,
             /*suspend_when_query_sent*/ false,
             read_packet_type_separately);
-        recreate_read_context = false;
     }
 
     while (true)
     {
         LockAndBlocker lock(was_cancelled_mutex);
         if (was_cancelled)
+        {
+            /// Preliminary cancelling is possible from sendQuery(), need to cancel the context
+            if (read_context)
+                read_context->cancel();
             return ReadResult(Block());
+        }
 
         if (packet_in_progress)
         {
@@ -627,6 +629,9 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAsync()
                 chassert(extension->parallel_reading_coordinator);
                 extension->parallel_reading_coordinator->markReplicaAsUnavailable(extension->replica_info->number_of_current_replica);
             }
+
+            if (read_context)
+                read_context->cancel();
 
             return ReadResult(Block());
         }
@@ -673,16 +678,16 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::restartQueryWithoutDuplicat
             LOG_DEBUG(log, "Found duplicate UUIDs, will retry query without those parts");
 
         resent_query = true;
-        recreate_read_context = true;
         sent_query = false;
         got_duplicated_part_uuids = false;
         was_cancelled = false;
     }
 
-    /// Consecutive read will implicitly send query first.
-    if (!read_context)
-        return read();
-    return readAsync();
+    /// TODO: remove this feature or implement async sending for it
+    if (read_context)
+        read_context->cancel();
+    sendQuery();
+    return read();
 }
 
 RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet)
@@ -715,6 +720,8 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             break;  /// If the block is empty - we will receive other packets before EndOfStream.
 
         case Protocol::Server::Exception:
+            if (read_context)
+                read_context->cancel();
             got_exception_from_replica = true;
             packet.exception->rethrow();
             break;
@@ -722,6 +729,9 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
         case Protocol::Server::EndOfStream:
             if (!connections->hasActiveConnections())
             {
+                if (read_context)
+                    read_context->cancel();
+
                 finished = true;
                 /// TODO: Replace with Type::Finished
                 return ReadResult(Block{});
@@ -774,6 +784,8 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             break;
 
         default:
+            if (read_context)
+                read_context->cancel();
             got_unknown_packet_from_replica = true;
             throw Exception(
                 ErrorCodes::UNKNOWN_PACKET_FROM_SERVER,
