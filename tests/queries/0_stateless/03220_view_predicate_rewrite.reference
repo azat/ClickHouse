@@ -1,0 +1,18 @@
+SELECT number
+FROM remote(\'127.1\', view(
+    SELECT *
+    FROM numbers(20)
+))
+WHERE number IN ((
+    SELECT *
+    FROM a
+) AS _subquery_
+SELECT number
+FROM remote(\'127.1\', view(
+    SELECT *
+    FROM numbers(20)
+))
+WHERE number IN ((
+    SELECT *
+    FROM a
+) AS _subquery_

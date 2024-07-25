@@ -1,0 +1,2 @@
+select replaceRegexpOne(*, '_subquery.*', '_subquery_') from (explain syntax select * from remote('127.1', view(select * from numbers(20))) where number in (select * from a)) settings allow_experimental_analyzer=1;
+select replaceRegexpOne(*, '_subquery.*', '_subquery_') from (explain syntax select * from remote('127.1', view(select * from numbers(20))) where number in (select * from a)) settings allow_experimental_analyzer=0;

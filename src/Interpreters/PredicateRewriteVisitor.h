@@ -20,10 +20,7 @@ public:
 
     void visit(ASTSelectWithUnionQuery & union_select_query, ASTPtr &);
 
-    static bool needChild(const ASTPtr & node, const ASTPtr &)
-    {
-        return !(node && node->as<TypeToVisit>());
-    }
+    static bool needChild(const ASTPtr & node, const ASTPtr & child);
 
     PredicateRewriteVisitorData(
         ContextPtr context_,

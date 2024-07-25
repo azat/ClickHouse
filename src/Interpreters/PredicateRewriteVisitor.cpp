@@ -32,6 +32,17 @@ PredicateRewriteVisitorData::PredicateRewriteVisitorData(
 {
 }
 
+bool PredicateRewriteVisitorData::needChild(const ASTPtr & node, const ASTPtr &)
+{
+    if (auto * ast_function = node->as<ASTFunction>())
+    {
+        /// view() should pass query as-is
+        if (ast_function->name == "view")
+            return false;
+    }
+    return !node->as<TypeToVisit>();
+}
+
 void PredicateRewriteVisitorData::visit(ASTSelectWithUnionQuery & union_select_query, ASTPtr &)
 {
     auto & internal_select_list = union_select_query.list_of_selects->children;
