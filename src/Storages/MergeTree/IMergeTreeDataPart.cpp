@@ -1900,7 +1900,6 @@ bool IMergeTreeDataPart::shallParticipateInMerges(const StoragePolicyPtr & stora
 }
 
 void IMergeTreeDataPart::renameTo(const String & new_relative_path, bool remove_new_dir_if_exists)
-try
 {
     assertOnDisk();
 
@@ -1925,18 +1924,6 @@ try
 
     for (const auto & [_, part] : projection_parts)
         part->getDataPartStorage().changeRootPath(old_projection_root_path, new_projection_root_path);
-}
-catch (...)
-{
-    if (startsWith(new_relative_path, fs::path(MergeTreeData::DETACHED_DIR_NAME) / ""))
-    {
-        // Don't throw when the destination is to the detached folder. It might be able to
-        // recover in some cases, such as fetching parts into multi-disks while some of the
-        // disks are broken.
-        tryLogCurrentException(__PRETTY_FUNCTION__);
-    }
-    else
-        throw;
 }
 
 std::pair<bool, NameSet> IMergeTreeDataPart::canRemovePart() const
@@ -2044,11 +2031,26 @@ std::optional<String> IMergeTreeDataPart::getRelativePathForDetachedPart(const S
     return {};
 }
 
-void IMergeTreeDataPart::renameToDetached(const String & prefix)
+void IMergeTreeDataPart::renameToDetached(const String & prefix, bool ignore_error)
 {
     auto path_to_detach = getRelativePathForDetachedPart(prefix, /* broken */ false);
     assert(path_to_detach);
-    renameTo(path_to_detach.value(), true);
+    try
+    {
+        renameTo(path_to_detach.value(), true);
+    }
+    catch (...)
+    {
+        if (ignore_error)
+        {
+            // Don't throw when the destination is to the detached folder. It might be able to
+            // recover in some cases, such as fetching parts into multi-disks while some of the
+            // disks are broken.
+            tryLogCurrentException(__PRETTY_FUNCTION__);
+        }
+        else
+            throw;
+    }
     part_is_probably_removed_from_disk = true;
 }
 
