@@ -635,6 +635,7 @@ private:
         Arena * arena);
 };
 
+/// NOTE: For non-Analyzer tables are not fully qualified, i.e. does not include database name
 UInt64 calculateCacheKey(const DB::ASTPtr & select_query);
 
 /** Get the aggregation variant by its type. */
