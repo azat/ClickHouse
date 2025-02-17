@@ -124,6 +124,7 @@ namespace ErrorCodes
     extern const int SUPPORT_IS_DISABLED;
     extern const int TOO_DEEP_RECURSION;
     extern const int UNKNOWN_TABLE;
+    extern const int NO_SUCH_REPLICA;
 }
 
 namespace ActionLocks
@@ -916,6 +917,14 @@ StoragePtr InterpreterSystemQuery::doRestartReplica(const StorageID & replica, C
         return nullptr;
     }
     const StorageID replica_table_id = table->getStorageID();
+    /// Ensure that the table is still requested table after acquiring the DDL guard.
+    /// Also, since DDLGuard does not uses UUID, we need to compare by database/table without UUID.
+    if (replica_table_id.getFullTableName() != replica.getFullTableName())
+    {
+        if (throw_on_error)
+            throw Exception(ErrorCodes::NO_SUCH_REPLICA, "Table does not match requested replica (requested: {}, obtained: {})", replica, replica_table_id);
+        return nullptr;
+    }
     if (!dynamic_cast<const StorageReplicatedMergeTree *>(table.get()))
     {
         if (throw_on_error)
