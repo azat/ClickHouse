@@ -107,7 +107,7 @@ void CoordinationSettingsImpl::loadFromConfig(const String & config_elem, const 
 
 namespace CoordinationSetting
 {
-LIST_OF_COORDINATION_SETTINGS(INITIALIZE_SETTING_EXTERN, SKIP_ALIAS)
+LIST_OF_COORDINATION_SETTINGS(INITIALIZE_SETTING_EXTERN, SETTING_SKIP_TRAIT)
 }
 
 #undef INITIALIZE_SETTING_EXTERN
