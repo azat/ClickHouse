@@ -85,6 +85,7 @@ namespace MergeTreeSetting
     extern const MergeTreeSettingsFloat ratio_of_defaults_for_sparse_serialization;
     extern const MergeTreeSettingsBool replace_long_file_name_to_hash;
     extern const MergeTreeSettingsBool columns_and_secondary_indices_sizes_lazy_calculation;
+    extern const MergeTreeSettingsUInt64 primary_key_index_granualarity_granulas;
 }
 
 namespace ErrorCodes
@@ -394,24 +395,33 @@ IMergeTreeDataPart::~IMergeTreeDataPart()
     decrementTypeMetric(part_type);
 }
 
-IMergeTreeDataPart::IndexPtr IMergeTreeDataPart::getIndex() const
+IMergeTreeDataPart::IndexPtr IMergeTreeDataPart::getIndex(bool complete) const
 {
     std::scoped_lock lock(index_mutex);
 
-    if (index)
+    if (complete && index)
         return index;
+    if (!complete && root_index)
+        return root_index;
 
-    if (auto index_cache = storage.getPrimaryIndexCache())
-        return loadIndexToCache(*index_cache);
+    auto primary_key_index_granualarity_granulas = (*storage.getSettings())[MergeTreeSetting::primary_key_index_granualarity_granulas];
+    UInt64 granulas = complete ? 1 : primary_key_index_granualarity_granulas;
+    if (granulas == 1)
+    {
+        if (auto index_cache = storage.getPrimaryIndexCache())
+            return loadIndexToCache(*index_cache, granulas);
+    }
 
-    index = loadIndex();
-    return index;
+    if (complete)
+        return index = loadIndex(granulas);
+    else
+        return root_index = loadIndex(granulas);
 }
 
-IMergeTreeDataPart::IndexPtr IMergeTreeDataPart::loadIndexToCache(PrimaryIndexCache & index_cache) const
+IMergeTreeDataPart::IndexPtr IMergeTreeDataPart::loadIndexToCache(PrimaryIndexCache & index_cache, UInt64 granulas) const
 {
     auto key = PrimaryIndexCache::hash(getRelativePathOfActivePart());
-    auto callback = [this] { return loadIndex(); };
+    auto callback = [this, granulas] { return loadIndex(granulas); };
     return index_cache.getOrSet(key, callback);
 }
 
@@ -735,24 +745,40 @@ void IMergeTreeDataPart::removeIfNeeded()
 UInt64 IMergeTreeDataPart::getIndexSizeInBytes() const
 {
     std::scoped_lock lock(index_mutex);
-    if (!index)
+    if (!index && !root_index)
         return 0;
 
     UInt64 res = 0;
-    for (const auto & column : *index)
-        res += column->byteSize();
+    if (root_index)
+    {
+        for (const auto & column : *root_index)
+            res += column->byteSize();
+    }
+    if (index)
+    {
+        for (const auto & column : *index)
+            res += column->byteSize();
+    }
     return res;
 }
 
 UInt64 IMergeTreeDataPart::getIndexSizeInAllocatedBytes() const
 {
     std::scoped_lock lock(index_mutex);
-    if (!index)
+    if (!index && !root_index)
         return 0;
 
     UInt64 res = 0;
-    for (const auto & column : *index)
-        res += column->allocatedBytes();
+    if (root_index)
+    {
+        for (const auto & column : *root_index)
+            res += column->allocatedBytes();
+    }
+    if (index)
+    {
+        for (const auto & column : *index)
+            res += column->allocatedBytes();
+    }
     return res;
 }
 
@@ -872,7 +898,7 @@ void IMergeTreeDataPart::loadColumnsChecksumsIndexes(bool require_columns_checks
 
         /// It's important to load index after index granularity.
         if (!(*storage.getSettings())[MergeTreeSetting::primary_key_lazy_load])
-            index = loadIndex();
+            getIndex(/*complete=*/ false);
 
         if (!(*storage.getSettings())[MergeTreeSetting::columns_and_secondary_indices_sizes_lazy_calculation])
             calculateColumnsAndSecondaryIndicesSizesOnDisk();
@@ -1053,7 +1079,7 @@ void IMergeTreeDataPart::optimizeIndexColumns(size_t marks_count, Columns & inde
     }
 }
 
-std::shared_ptr<IMergeTreeDataPart::Index> IMergeTreeDataPart::loadIndex() const
+std::shared_ptr<IMergeTreeDataPart::Index> IMergeTreeDataPart::loadIndex(UInt64 granulas) const
 {
     /// Memory for index must not be accounted as memory usage for query, because it belongs to a table.
     MemoryTrackerBlockerInThread temporarily_disable_memory_tracker;
@@ -1068,25 +1094,45 @@ std::shared_ptr<IMergeTreeDataPart::Index> IMergeTreeDataPart::loadIndex() const
     MutableColumns loaded_index;
     loaded_index.resize(key_size);
 
+    size_t total_marks = index_granularity->getMarksCount();
+    size_t marks_count = granulas == 1 ? total_marks : static_cast<size_t>(std::ceil(static_cast<double>(total_marks) / granulas));
+    LOG_TRACE(storage.log, "Using {} marks (total marks {}, {} granulas of primary key granularity)",
+        marks_count, total_marks, granulas);
     for (size_t i = 0; i < key_size; ++i)
     {
         loaded_index[i] = primary_key.data_types[i]->createColumn();
-        loaded_index[i]->reserve(index_granularity->getMarksCount());
+        loaded_index[i]->reserve(marks_count);
     }
 
     String index_name = "primary" + getIndexExtensionFromFilesystem(getDataPartStorage());
     String index_path = fs::path(getDataPartStorage().getRelativePath()) / index_name;
     auto index_file = readFile(index_name);
-    size_t marks_count = index_granularity->getMarksCount();
 
     Serializations key_serializations(key_size);
     for (size_t j = 0; j < key_size; ++j)
         key_serializations[j] = primary_key.data_types[j]->getDefaultSerialization();
 
-    for (size_t i = 0; i < marks_count; ++i)
+    if (granulas == 1)
     {
-        for (size_t j = 0; j < key_size; ++j)
-            key_serializations[j]->deserializeBinary(*loaded_index[j], *index_file, {});
+        for (size_t i = 0; i < total_marks; ++i)
+        {
+            for (size_t j = 0; j < key_size; ++j)
+                key_serializations[j]->deserializeBinary(*loaded_index[j], *index_file, {});
+        }
+    }
+    else
+    {
+        Field tmp;
+        for (size_t i = 0, mark_i = 0; i < total_marks; ++i, mark_i += i / granulas)
+        {
+            for (size_t j = 0; j < key_size; ++j)
+            {
+                if (i % granulas)
+                    key_serializations[j]->deserializeBinary(tmp, *index_file, {});
+                else
+                    key_serializations[j]->deserializeBinary(*loaded_index[j], *index_file, {});
+            }
+        }
     }
 
     optimizeIndexColumns(marks_count, loaded_index);

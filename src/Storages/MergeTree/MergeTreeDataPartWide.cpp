@@ -1,4 +1,5 @@
 #include <Storages/MergeTree/MergeTreeDataPartWide.h>
+#include <Storages/MergeTree/MergeTreeIndexGranularityAdaptive.h>
 #include <Storages/MergeTree/MergeTreeReaderWide.h>
 #include <Storages/MergeTree/MergeTreeDataPartWriterWide.h>
 #include <Storages/MergeTree/IMergeTreeDataPartWriter.h>
@@ -24,6 +25,7 @@ namespace ErrorCodes
 namespace MergeTreeSetting
 {
     extern MergeTreeSettingsBool enable_index_granularity_compression;
+    extern MergeTreeSettingsUInt64 primary_key_index_granualarity_granulas;
 }
 
 MergeTreeDataPartWide::MergeTreeDataPartWide(
@@ -150,7 +152,8 @@ void MergeTreeDataPartWide::loadIndexGranularityImpl(
     MergeTreeIndexGranularityInfo & index_granularity_info_,
     const IDataPartStorage & data_part_storage_,
     const std::string & any_column_file_name,
-    const MergeTreeSettings & storage_settings)
+    const MergeTreeSettings & storage_settings,
+    size_t fixed_granularity)
 {
     index_granularity_info_.changeGranularityIfRequired(data_part_storage_);
 
@@ -162,12 +165,13 @@ void MergeTreeDataPartWide::loadIndexGranularityImpl(
             std::string(fs::path(data_part_storage_.getFullPath()) / marks_file_path));
 
     size_t marks_file_size = data_part_storage_.getFileSize(marks_file_path);
-    size_t fixed_granularity = index_granularity_info_.fixed_index_granularity;
 
     if (!index_granularity_info_.mark_type.adaptive && !index_granularity_info_.mark_type.compressed)
     {
         /// The most easy way - no need to read the file, everything is known from its size.
         size_t marks_count = marks_file_size / index_granularity_info_.getMarkSizeInBytes();
+        size_t ratio = fixed_granularity / index_granularity_info_.fixed_index_granularity;
+        marks_count = static_cast<size_t>(std::ceil(static_cast<double>(marks_count) / ratio));
         index_granularity_ptr = std::make_shared<MergeTreeIndexGranularityConstant>(fixed_granularity, fixed_granularity, marks_count, false);
     }
     else
@@ -221,7 +225,25 @@ void MergeTreeDataPartWide::loadIndexGranularity()
             "There are no files for column {} in part {}",
             columns.front().name, getDataPartStorage().getFullPath());
 
-    loadIndexGranularityImpl(index_granularity, index_granularity_info, getDataPartStorage(), *any_column_filename, *storage.getSettings());
+    size_t fixed_index_granularity = index_granularity_info.fixed_index_granularity;
+    loadIndexGranularityImpl(index_granularity, index_granularity_info, getDataPartStorage(), *any_column_filename, *storage.getSettings(), fixed_index_granularity);
+
+    auto primary_key_index_granualarity_granulas = (*storage.getSettings())[MergeTreeSetting::primary_key_index_granualarity_granulas];
+    /// FIXME: we can use it not only for constant granularity
+    if (primary_key_index_granualarity_granulas != 1 && index_granularity->getConstantGranularity().has_value())
+    {
+        /// This is for adapative granularity that will be optimized to constant.
+        root_index_granularity = std::make_unique<MergeTreeIndexGranularityAdaptive>();
+
+        size_t fixed_root_index_granularity = fixed_index_granularity * primary_key_index_granualarity_granulas;
+        LOG_TRACE(getLogger("MergeTreeDataPartWide"), "Loading adjusted index_granularity for part {}: primary_key_index_granualarity_granulas={}, granularity={}",
+            name, primary_key_index_granualarity_granulas.value, fixed_root_index_granularity);
+        loadIndexGranularityImpl(root_index_granularity, index_granularity_info, getDataPartStorage(), *any_column_filename, *storage.getSettings(), fixed_root_index_granularity);
+        if (!root_index_granularity->getConstantGranularity().has_value())
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Index granularity for primary_key_index_granualarity_granulas is non-constant");
+        if (root_index_granularity->getConstantGranularity().value_or(0) != fixed_root_index_granularity)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Index granularity for primary_key_index_granualarity_granulas is wrong (loaded granularity: {})", root_index_granularity->getConstantGranularity().value_or(0));
+    }
 }
 
 void MergeTreeDataPartWide::loadMarksToCache(const Names & column_names, MarkCache * mark_cache) const

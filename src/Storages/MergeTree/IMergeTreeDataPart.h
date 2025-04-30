@@ -323,6 +323,7 @@ public:
     /// Amount of rows between marks
     /// As index always loaded into memory
     MergeTreeIndexGranularityPtr index_granularity;
+    MergeTreeIndexGranularityPtr root_index_granularity;
 
     /// Index that for each part stores min and max values of a set of columns. This allows quickly excluding
     /// parts based on conditions on these columns imposed by a query.
@@ -380,8 +381,8 @@ public:
     /// It is set while rebuilding projections in merges or mutations.
     std::optional<UInt64> temp_projection_block_number;
 
-    IndexPtr getIndex() const;
-    IndexPtr loadIndexToCache(PrimaryIndexCache & index_cache) const;
+    IndexPtr getIndex(bool complete) const;
+    IndexPtr loadIndexToCache(PrimaryIndexCache & index_cache, UInt64 granulas) const;
     void moveIndexToCache(PrimaryIndexCache & index_cache);
     void removeIndexFromCache(PrimaryIndexCache * index_cache) const;
 
@@ -629,6 +630,7 @@ protected:
     /// Note that marks (also correspond to primary key) are not always in RAM, but cached. See MarkCache.h.
     mutable std::mutex index_mutex;
     mutable IndexPtr index;
+    mutable IndexPtr root_index;
 
 private:
     /// Columns and secondary indices sizes can be calculated lazily on first request.
@@ -725,7 +727,7 @@ private:
     virtual void loadIndexGranularity();
 
     /// Loads the index file.
-    std::shared_ptr<Index> loadIndex() const;
+    std::shared_ptr<Index> loadIndex(UInt64 granulas) const;
 
     /// Optimize index. Drop useless columns from suffix of primary key.
     template <typename Columns>

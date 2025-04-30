@@ -65,6 +65,9 @@ namespace ErrorCodes
     Maximum number of data rows between the marks of an index. I.e how many rows
     correspond to one primary key value.
     )", 0) \
+    DECLARE(UInt64, primary_key_index_granualarity_granulas, 1, R"(
+    Allows to load only part of the index into cache
+    )", 0) \
     DECLARE(UInt64, max_digestion_size_per_segment, 256_MiB, R"(
     Max number of bytes to digest per segment to build GIN index.
     )", 0) \

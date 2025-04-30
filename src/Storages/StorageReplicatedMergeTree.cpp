@@ -226,6 +226,7 @@ namespace MergeTreeSetting
     extern const MergeTreeSettingsBool use_minimalistic_checksums_in_zookeeper;
     extern const MergeTreeSettingsBool use_minimalistic_part_header_in_zookeeper;
     extern const MergeTreeSettingsMilliseconds wait_for_unique_parts_send_before_shutdown_ms;
+    extern const MergeTreeSettingsUInt64 primary_key_index_granualarity_granulas;
 }
 
 namespace FailPoints
@@ -5402,7 +5403,8 @@ bool StorageReplicatedMergeTree::fetchPart(
 
             if (auto index_cache = getPrimaryIndexCacheToPrewarm(bytes_uncompressed))
             {
-                part->loadIndexToCache(*index_cache);
+                auto primary_key_index_granualarity_granulas = (*getSettings())[MergeTreeSetting::primary_key_index_granualarity_granulas];
+                part->loadIndexToCache(*index_cache, primary_key_index_granualarity_granulas);
             }
 
             write_part_log({});

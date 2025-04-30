@@ -92,7 +92,7 @@ protected:
             if (index_header->has(column_name))
             {
                 if (!index_ptr)
-                    index_ptr = part->getIndex();
+                    index_ptr = part->getIndex(/*complete=*/ true);
 
                 size_t index_position = index_header->getPositionByName(column_name);
 

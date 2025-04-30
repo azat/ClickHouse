@@ -44,7 +44,7 @@ public:
             : data_part->info.getDataVersion();
     }
 
-    IndexPtr getIndexPtr() const override { return data_part->getIndex(); }
+    IndexPtr getIndexPtr() const override { return data_part->getIndex(/*complete=*/ true); }
 
     DataPartStoragePtr getDataPartStorage() const override { return data_part->getDataPartStoragePtr(); }
 

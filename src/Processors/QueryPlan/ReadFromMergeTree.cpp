@@ -195,6 +195,7 @@ namespace MergeTreeSetting
 {
     extern const MergeTreeSettingsUInt64 index_granularity;
     extern const MergeTreeSettingsUInt64 index_granularity_bytes;
+    extern const MergeTreeSettingsUInt64 primary_key_index_granualarity_granulas;
 }
 
 namespace ErrorCodes
@@ -683,7 +684,7 @@ Pipe ReadFromMergeTree::readInOrder(
 
         if (virtual_row_conversion && (read_type == ReadType::InOrder))
         {
-            const auto & index = part_with_ranges.data_part->getIndex();
+            const auto & index = part_with_ranges.data_part->getIndex(/*complete=*/ true);
             const auto & primary_key = storage_snapshot->metadata->primary_key;
             size_t mark_range_begin = part_with_ranges.ranges.front().begin;
 
@@ -2014,6 +2015,10 @@ ReadFromMergeTree::AnalysisResultPtr ReadFromMergeTree::selectRangesToRead(
         parts_before_pk = parts.size();
 
         auto reader_settings = getMergeTreeReaderSettings(context_, query_info_);
+
+        const auto data_settings = *data.getSettings();
+        auto primary_key_index_granualarity_granulas = data_settings[MergeTreeSetting::primary_key_index_granualarity_granulas];
+
         result.parts_with_ranges = MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipIndexes(
             std::move(parts),
             metadata_snapshot,
@@ -2028,7 +2033,8 @@ ReadFromMergeTree::AnalysisResultPtr ReadFromMergeTree::selectRangesToRead(
             result.index_stats,
             indexes->use_skip_indexes,
             find_exact_ranges,
-            query_info_.isFinal());
+            query_info_.isFinal(),
+            primary_key_index_granualarity_granulas);
 
         MergeTreeDataSelectExecutor::filterPartsByQueryConditionCache(result.parts_with_ranges, query_info_, vector_search_parameters, context_, log);
 

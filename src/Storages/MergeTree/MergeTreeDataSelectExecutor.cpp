@@ -109,6 +109,7 @@ namespace MergeTreeSetting
     extern const MergeTreeSettingsUInt64 max_concurrent_queries;
     extern const MergeTreeSettingsInt64 max_partitions_to_read;
     extern const MergeTreeSettingsUInt64 min_marks_to_honor_max_concurrent_queries;
+    extern const MergeTreeSettingsUInt64 primary_key_index_granualarity_granulas;
 }
 
 namespace ErrorCodes
@@ -139,6 +140,7 @@ size_t MergeTreeDataSelectExecutor::getApproximateTotalRowsToRead(
     const RangesInDataParts & parts,
     const StorageMetadataPtr & metadata_snapshot,
     const KeyCondition & key_condition,
+    UInt64 primary_key_index_granualarity_granulas,
     const Settings & settings,
     LoggerPtr log)
 {
@@ -150,7 +152,7 @@ size_t MergeTreeDataSelectExecutor::getApproximateTotalRowsToRead(
     MarkRanges exact_ranges;
     for (const auto & part : parts)
     {
-        MarkRanges part_ranges = markRangesFromPKRange(part, metadata_snapshot, key_condition, {}, {}, &exact_ranges, settings, log);
+        MarkRanges part_ranges = markRangesFromPKRange(part, metadata_snapshot, key_condition, {}, {}, primary_key_index_granualarity_granulas, &exact_ranges, settings, log);
         for (const auto & range : part_ranges)
             rows_count += part.data_part->index_granularity->getRowsCountInRange(range);
     }
@@ -266,7 +268,12 @@ MergeTreeDataSelectSamplingData MergeTreeDataSelectExecutor::getSampling(
         /// read) into the relative `SAMPLE 0.1` (how much data to read).
         size_t approx_total_rows = 0;
         if (relative_sample_size > 1 || relative_sample_offset > 1)
-            approx_total_rows = getApproximateTotalRowsToRead(parts, metadata_snapshot, key_condition, settings, log);
+        {
+            const auto data_settings = *data.getSettings();
+            auto primary_key_index_granualarity_granulas = data_settings[MergeTreeSetting::primary_key_index_granualarity_granulas];
+
+            approx_total_rows = getApproximateTotalRowsToRead(parts, metadata_snapshot, key_condition, primary_key_index_granualarity_granulas, settings, log);
+        }
 
         if (relative_sample_size > 1)
         {
@@ -683,7 +690,8 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
     ReadFromMergeTree::IndexStats & index_stats,
     bool use_skip_indexes,
     bool find_exact_ranges,
-    bool is_final_query)
+    bool is_final_query,
+    UInt64 primary_key_index_granualarity_granulas)
 {
     const Settings & settings = context->getSettingsRef();
 
@@ -773,6 +781,7 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
                     key_condition,
                     part_offset_condition,
                     total_offset_condition,
+                    primary_key_index_granualarity_granulas,
                     find_exact_ranges ? &ranges.exact_ranges : nullptr,
                     settings,
                     log);
@@ -1258,27 +1267,89 @@ size_t MergeTreeDataSelectExecutor::minMarksForConcurrentRead(
     return std::max(marks, min_marks);
 }
 
-/// Calculates a set of mark ranges, that could possibly contain keys, required by condition.
-/// In other words, it removes subranges from whole range, that definitely could not contain required keys.
-/// If @exact_ranges is not null, fill it with ranges containing marks of fully matched records.
 MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
     const RangesInDataPart & part_with_ranges,
     const StorageMetadataPtr & metadata_snapshot,
     const KeyCondition & key_condition,
     const std::optional<KeyCondition> & part_offset_condition,
     const std::optional<KeyCondition> & total_offset_condition,
+    float ratio,
     MarkRanges * exact_ranges,
     const Settings & settings,
     LoggerPtr log)
 {
     const auto & part = part_with_ranges.data_part;
-    MarkRanges res;
 
-    size_t marks_count = part->index_granularity->getMarksCount();
+    auto get_marks_count = [](const MergeTreeIndexGranularityPtr & index_granularity) -> size_t
+    {
+        size_t marks_count = index_granularity->getMarksCount();
+        if (marks_count == 0)
+            return 0;
+        bool has_final_mark = index_granularity->hasFinalMark();
+        return marks_count - (has_final_mark ? 1 : 0);
+    };
+    size_t marks_count = get_marks_count(part->index_granularity);
     if (marks_count == 0)
-        return res;
+        return {};
 
-    bool has_final_mark = part->index_granularity->hasFinalMark();
+    size_t part_starting_offset_in_query = part_with_ranges.part_starting_offset_in_query;
+    if (ratio == 1. || !part->root_index_granularity)
+    {
+        LOG_TRACE(log, "Filtering using complete primary key");
+        return markRangesFromPKRangeImpl(part, part->index_granularity,
+             metadata_snapshot, key_condition,
+             part_starting_offset_in_query, part_offset_condition, total_offset_condition,
+             exact_ranges,
+             /*marks_start=*/ 0, /*marks_end=*/ marks_count, /*complete=*/ true,
+             settings, log);
+    }
+
+    size_t root_marks_count = get_marks_count(part->root_index_granularity);
+    LOG_TRACE(log, "Filtering using granulated primary key ({} marks)", root_marks_count);
+    auto ranges_first_phase = markRangesFromPKRangeImpl(part, part->root_index_granularity,
+        metadata_snapshot, key_condition,
+        part_starting_offset_in_query, part_offset_condition, total_offset_condition,
+        exact_ranges,
+        /*marks_start=*/ 0, /*marks_end=*/ root_marks_count, /*complete=*/ false,
+        settings, log);
+
+    size_t factor = part->root_index_granularity->getConstantGranularity().value() / part->index_granularity->getConstantGranularity().value();
+    LOG_TRACE(log, "Filtering using complete primary key ({} marks)", ranges_first_phase.getNumberOfMarks());
+    MarkRanges res;
+    for (const MarkRange & initial_range : ranges_first_phase)
+    {
+        size_t range_begin = factor * initial_range.begin;
+        size_t range_end = std::min(factor * initial_range.end, marks_count);
+        const auto & precise_ranges = markRangesFromPKRangeImpl(part, part->index_granularity,
+            metadata_snapshot, key_condition,
+            part_starting_offset_in_query, part_offset_condition, total_offset_condition,
+            exact_ranges,
+            range_begin, range_end, /*complete=*/ true,
+            settings, log);
+        res.insert(res.end(), precise_ranges.begin(), precise_ranges.end());
+    }
+    return res;
+}
+
+/// Calculates a set of mark ranges, that could possibly contain keys, required by condition.
+/// In other words, it removes subranges from whole range, that definitely could not contain required keys.
+/// If @exact_ranges is not null, fill it with ranges containing marks of fully matched records.
+MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRangeImpl(
+    const MergeTreeData::DataPartPtr & part,
+    const MergeTreeIndexGranularityPtr & index_granularity,
+    const StorageMetadataPtr & metadata_snapshot,
+    const KeyCondition & key_condition,
+    size_t part_starting_offset_in_query,
+    const std::optional<KeyCondition> & part_offset_condition,
+    const std::optional<KeyCondition> & total_offset_condition,
+    MarkRanges * exact_ranges,
+    UInt64 marks_start,
+    UInt64 marks_end,
+    bool complete,
+    const Settings & settings,
+    LoggerPtr log)
+{
+    MarkRanges res;
 
     bool key_condition_useful = !key_condition.alwaysUnknownOrTrue();
     bool part_offset_condition_useful = part_offset_condition && !part_offset_condition->alwaysUnknownOrTrue();
@@ -1287,11 +1358,7 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
     /// If index is not used.
     if (!key_condition_useful && !part_offset_condition_useful && !total_offset_condition_useful)
     {
-        if (has_final_mark)
-            res.push_back(MarkRange(0, marks_count - 1));
-        else
-            res.push_back(MarkRange(0, marks_count));
-
+        res.push_back(MarkRange(marks_start, marks_end));
         return res;
     }
 
@@ -1308,7 +1375,7 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
     DataTypes key_types;
     if (!key_indices.empty())
     {
-        const auto index = part->getIndex();
+        const auto index = part->getIndex(complete);
 
         for (size_t i : key_indices)
         {
@@ -1366,7 +1433,7 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
     {
         auto check_key_condition = [&]()
         {
-            if (range.end == marks_count)
+            if (range.end == marks_end)
             {
                 for (size_t i = 0; i < used_key_size; ++i)
                 {
@@ -1404,8 +1471,8 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
 
         auto check_part_offset_condition = [&]()
         {
-            auto begin = part->index_granularity->getMarkStartingRow(range.begin);
-            auto end = part->index_granularity->getMarkStartingRow(range.end) - 1;
+            auto begin = index_granularity->getMarkStartingRow(range.begin);
+            auto end = index_granularity->getMarkStartingRow(range.end) - 1;
             if (begin > end)
             {
                 /// Empty mark (final mark)
@@ -1432,8 +1499,8 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
                 return BoolMask(false, true);
             }
 
-            part_offset_left[0] = begin + part_with_ranges.part_starting_offset_in_query;
-            part_offset_right[0] = end + part_with_ranges.part_starting_offset_in_query;
+            part_offset_left[0] = begin + part_starting_offset_in_query;
+            part_offset_right[0] = end + part_starting_offset_in_query;
             return total_offset_condition->checkInRange(
                 1, part_offset_left.data(), part_offset_right.data(), part_offset_types, initial_mask);
         };
@@ -1457,7 +1524,7 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
     bool total_offset_condition_exact_range = !total_offset_condition_useful || total_offset_condition->matchesExactContinuousRange();
     const String & part_name = part->isProjectionPart() ? fmt::format("{}.{}", part->name, part->getParentPart()->name) : part->name;
 
-    if (!key_condition_exact_range || !part_offset_condition_exact_range || !total_offset_condition_exact_range)
+    if (!key_condition_exact_range || !part_offset_condition_exact_range || !total_offset_condition_exact_range || !complete)
     {
         // Do exclusion search, where we drop ranges that do not match
 
@@ -1474,7 +1541,7 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
         /// At each step, take the left segment and check if it fits.
         /// If fits, split it into smaller ones and put them on the stack. If not, discard it.
         /// If the segment is already of one mark length, add it to response and discard it.
-        std::vector<MarkRange> ranges_stack = { {0, marks_count - (has_final_mark ? 1 : 0)} };
+        std::vector<MarkRange> ranges_stack = { {marks_start, marks_end} };
 
         size_t steps = 0;
 
@@ -1523,9 +1590,10 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
         ProfileEvents::increment(ProfileEvents::IndexGenericExclusionSearchAlgorithm);
         LOG_TRACE(
             log,
-            "Used generic exclusion search {}over index for part {} with {} steps",
+            "Used generic exclusion search {}over index for part {} (start {}, marks {}) with {} steps",
             exact_ranges ? "with exact ranges " : "",
             part_name,
+            marks_start, marks_end,
             steps);
     }
     else
@@ -1536,14 +1604,14 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
 
         res.search_algorithm = MarkRanges::SearchAlgorithm::BinarySearch;
         ProfileEvents::increment(ProfileEvents::IndexBinarySearchAlgorithm);
-        LOG_TRACE(log, "Running binary search on index range for part {} ({} marks)", part_name, marks_count);
+        LOG_TRACE(log, "Running binary search on index range for part {} (start {}, {} marks)", part_name, marks_start, marks_end);
 
         size_t steps = 0;
 
         MarkRange result_range;
 
-        size_t last_mark = marks_count - (has_final_mark ? 1 : 0);
-        size_t searched_left = 0;
+        size_t last_mark = marks_end;
+        size_t searched_left = marks_start;
         size_t searched_right = last_mark;
 
         bool check_left = false;
@@ -1551,7 +1619,7 @@ MarkRanges MergeTreeDataSelectExecutor::markRangesFromPKRange(
         while (searched_left + 1 < searched_right)
         {
             const size_t middle = (searched_left + searched_right) / 2;
-            MarkRange range(0, middle);
+            MarkRange range(marks_start, middle);
             if (check_in_range(range, BoolMask::consider_only_can_be_true).can_be_true)
                 searched_right = middle;
             else

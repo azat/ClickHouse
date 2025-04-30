@@ -144,7 +144,8 @@ public:
         /// track the minimal subset of loaded columns across all parts.
         indices.reserve(parts.size());
         for (const auto & part : parts)
-            indices.push_back(part.data_part->getIndex());
+            /// FIXME: primary_key_index_granualarity_granulas
+            indices.push_back(part.data_part->getIndex(/*complete=*/ true));
 
         for (const auto & index : indices)
             loaded_columns = std::min(loaded_columns, index->size());

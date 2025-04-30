@@ -64,12 +64,14 @@ public:
         size_t num_streams,
         PartitionIdToMaxBlockPtr max_block_numbers_to_read = nullptr) const;
 
+    /// Used directly in MergeTreeSequentialSource (for merges), this is OK
     static MarkRanges markRangesFromPKRange(
         const RangesInDataPart & part_with_ranges,
         const StorageMetadataPtr & metadata_snapshot,
         const KeyCondition & key_condition,
         const std::optional<KeyCondition> & part_offset_condition,
         const std::optional<KeyCondition> & total_offset_condition,
+        float ratio,
         MarkRanges * exact_ranges,
         const Settings & settings,
         LoggerPtr log);
@@ -78,11 +80,27 @@ private:
     const MergeTreeData & data;
     LoggerPtr log;
 
+    static MarkRanges markRangesFromPKRangeImpl(
+        const MergeTreeData::DataPartPtr & part,
+        const MergeTreeIndexGranularityPtr & index_granularity,
+        const StorageMetadataPtr & metadata_snapshot,
+        const KeyCondition & key_condition,
+        size_t part_starting_offset_in_query,
+        const std::optional<KeyCondition> & part_offset_condition,
+        const std::optional<KeyCondition> & total_offset_condition,
+        MarkRanges * exact_ranges,
+        UInt64 marks_start,
+        UInt64 marks_end,
+        bool complete,
+        const Settings & settings,
+        LoggerPtr log);
+
     /// Get the approximate value (bottom estimate - only by full marks) of the number of rows falling under the index.
     static size_t getApproximateTotalRowsToRead(
         const RangesInDataParts & parts,
         const StorageMetadataPtr & metadata_snapshot,
         const KeyCondition & key_condition,
+        UInt64 primary_key_index_granualarity_granulas,
         const Settings & settings,
         LoggerPtr log);
 
@@ -207,7 +225,8 @@ public:
         ReadFromMergeTree::IndexStats & index_stats,
         bool use_skip_indexes,
         bool find_exact_ranges,
-        bool is_final_query);
+        bool is_final_query,
+        UInt64 primary_key_index_granualarity_granulas);
 
     /// Filter parts using query condition cache.
     static void filterPartsByQueryConditionCache(
