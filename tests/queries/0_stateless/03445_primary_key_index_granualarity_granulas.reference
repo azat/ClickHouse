@@ -1,0 +1,23 @@
+-- { echoOn }
+select sum(primary_key_bytes_in_memory), count() from system.parts where database = currentDatabase() and table = 'pk_ratio' and active;
+0	1
+select * from pk_ratio where key = 1;
+1	100
+select * from pk_ratio where key = 1000;
+1000	100000
+select * from pk_ratio where key = 8192;
+8192	819200
+select sum(primary_key_bytes_in_memory) from system.parts where database = currentDatabase() and table = 'pk_ratio' and active;
+500
+select * from pk_ratio where key = 10000;
+10000	1000000
+select * from pk_ratio where key = 81920;
+81920	8192000
+select sum(primary_key_bytes_in_memory) from system.parts where database = currentDatabase() and table = 'pk_ratio' and active;
+500
+select * from pk_ratio where key = 100000;
+100000	10000000
+select * from pk_ratio where key = 819200;
+819200	81920000
+select sum(primary_key_bytes_in_memory) from system.parts where database = currentDatabase() and table = 'pk_ratio' and active;
+500

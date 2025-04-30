@@ -46,7 +46,8 @@ protected:
         MergeTreeIndexGranularityInfo & index_granularity_info_,
         const IDataPartStorage & data_part_storage_,
         const std::string & any_column_file_name,
-        const MergeTreeSettings & storage_settings);
+        const MergeTreeSettings & storage_settings,
+        size_t fixed_granularity);
 
     void doCheckConsistency(bool require_part_metadata) const override;
 

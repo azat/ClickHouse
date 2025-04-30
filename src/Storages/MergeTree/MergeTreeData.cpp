@@ -249,6 +249,7 @@ namespace MergeTreeSetting
     extern const MergeTreeSettingsUInt64 min_bytes_to_prewarm_caches;
     extern const MergeTreeSettingsBool columns_and_secondary_indices_sizes_lazy_calculation;
     extern const MergeTreeSettingsSeconds refresh_parts_interval;
+    extern const MergeTreeSettingsUInt64 primary_key_index_granualarity_granulas;
 }
 
 namespace ServerSetting
@@ -2688,6 +2689,7 @@ void MergeTreeData::prewarmCaches(ThreadPool & pool, MarkCachePtr mark_cache, Pr
         return cache->sizeInBytes() < cache->maxSizeInBytes() * ratio_to_prewarm;
     };
 
+    auto primary_key_index_granualarity_granulas = (*getSettings())[MergeTreeSetting::primary_key_index_granualarity_granulas];
     for (const auto & part : data_parts)
     {
         bool added_task = false;
@@ -2699,7 +2701,7 @@ void MergeTreeData::prewarmCaches(ThreadPool & pool, MarkCachePtr mark_cache, Pr
                 /// Check again, because another task may have filled the cache while this task was waiting in the queue.
                 /// The cache still may be filled slightly more than `index_ratio_to_prewarm`, but it's ok.
                 if (enough_space(index_cache, index_ratio_to_prewarm))
-                    part->loadIndexToCache(*index_cache);
+                    part->loadIndexToCache(*index_cache, primary_key_index_granualarity_granulas);
             });
 
             added_task = true;
@@ -7736,7 +7738,7 @@ Block MergeTreeData::getMinMaxCountProjectionBlock(
         {
             for (const auto & part : real_parts)
             {
-                const auto & primary_key_column = *part->getIndex()->at(0);
+                const auto & primary_key_column = *part->getIndex(/*complete=*/false)->at(0);
                 auto & min_column = assert_cast<ColumnAggregateFunction &>(*partition_minmax_count_columns[pos]);
                 insert(min_column, primary_key_column[0]);
             }
@@ -7747,7 +7749,7 @@ Block MergeTreeData::getMinMaxCountProjectionBlock(
         {
             for (const auto & part : real_parts)
             {
-                const auto & primary_key_column = *part->getIndex()->at(0);
+                const auto & primary_key_column = *part->getIndex(/*complete=*/false)->at(0);
                 auto & max_column = assert_cast<ColumnAggregateFunction &>(*partition_minmax_count_columns[pos]);
                 insert(max_column, primary_key_column[primary_key_column.size() - 1]);
             }
@@ -9435,7 +9437,7 @@ void MergeTreeData::loadPrimaryKeys() const
     for (const auto & data_part : data_parts)
     {
         /// We call getIndex() because it calls loadIndex() after locking its mutex, but we don't need its value.
-        data_part->getIndex();
+        data_part->getIndex(/*complete=*/ false);
     }
 }
 
