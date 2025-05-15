@@ -439,6 +439,7 @@ public:
                     /*part_offset_condition=*/{},
                     /*total_offset_condition=*/{},
                     /*ratio=*/1.,
+                    /*complete=*/true,
                     /*exact_ranges=*/nullptr,
                     context->getSettingsRef(),
                     log);

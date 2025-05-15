@@ -1104,7 +1104,7 @@ void ParallelReplicasReadingCoordinator::handleInitialAllRangesAnnouncement(Init
     {
         snapshot_replica_num = announcement.replica_num;
 
-        LOG_DEBUG(getLogger("ParallelReplicasReadingCoordinator"), "Using snapshot from replica num {}", snapshot_replica_num.value());
+        LOG_DEBUG(log, "Using snapshot from replica num {}", snapshot_replica_num.value());
     }
 
     pimpl->handleInitialAllRangesAnnouncement(std::move(announcement));
@@ -1167,8 +1167,7 @@ ParallelReadResponse ParallelReplicasReadingCoordinator::handleRequest(ParallelR
             if (!replicas_to_exclude.empty())
                 replicas = fmt::format("{}", fmt::join(replicas_to_exclude, ", "));
 
-            LOG_DEBUG(
-                getLogger("ParallelReplicasReadingCoordinator"),
+            LOG_DEBUG(log,
                 "All ranges for reading has been assigned to replicas. Cancelling execution for unused replicas. Used replicas: {}",
                 replicas);
 
@@ -1179,6 +1178,55 @@ ParallelReadResponse ParallelReplicasReadingCoordinator::handleRequest(ParallelR
     }
 
     return response;
+}
+
+static size_t computePartRangeConsistentHash(const std::string & part_name, size_t range_begin, size_t nodes)
+{
+    auto hash = SipHash();
+    hash.update(part_name);
+    hash.update(range_begin);
+    return ConsistentHashing(hash.get64(), nodes);
+}
+
+RangesInDataPartsDescription ParallelReplicasReadingCoordinator::getRootPartsForReplica(const RangesInDataPartsDescription & parts, size_t replica_num)
+{
+    RangesInDataPartsDescription res;
+
+    size_t available_replicas = replicas_count;
+    {
+        std::unique_lock lock(mutex);
+        available_replicas -= unavailable_nodes_registered_before_initialization.size();
+    }
+
+    for (const auto & part : parts)
+    {
+        const auto & part_name = part.info.getPartNameV1();
+        RangesInDataPartDescription part_description{
+            .info = part.info,
+            .ranges = {},
+            .rows = {},
+        };
+
+        for (const auto & range : part.ranges)
+        {
+            size_t replica = computePartRangeConsistentHash(part_name, range.begin, available_replicas);
+            if (replica == replica_num)
+                part_description.ranges.push_back(range);
+        }
+
+        res.push_back(part_description);
+    }
+
+    return res;
+}
+
+ParallelReplicasIndexAnalysisResponse ParallelReplicasReadingCoordinator::handleIndexAnalysisRequest(ParallelReplicasIndexAnalysisRequest request, size_t replica_num)
+{
+    Stopwatch watch;
+    LOG_TRACE(log, "Index analysis request from replica {}: {}", replica_num, request.description.describe());
+    auto res = getRootPartsForReplica(request.description, replica_num);
+    LOG_TRACE(log, "Index analysis response to replica {} (took {}us): {}", replica_num, watch.elapsedMicroseconds(), res.describe());
+    return ParallelReplicasIndexAnalysisResponse{res};
 }
 
 void ParallelReplicasReadingCoordinator::markReplicaAsUnavailable(size_t replica_number)
@@ -1224,9 +1272,11 @@ void ParallelReplicasReadingCoordinator::initialize(CoordinationMode mode)
         pimpl->markReplicaAsUnavailable(replica);
 }
 
-ParallelReplicasReadingCoordinator::ParallelReplicasReadingCoordinator(size_t replicas_count_) : replicas_count(replicas_count_)
+ParallelReplicasReadingCoordinator::ParallelReplicasReadingCoordinator(size_t replicas_count_)
+    : replicas_count(replicas_count_)
+    , log(getLogger("ParallelReplicas"))
 {
-    LOG_DEBUG(getLogger("ParallelReplicasReadingCoordinator"), "Creating parallel replicas coordinator with replicas_count={}", replicas_count);
+    LOG_DEBUG(log, "Creating parallel replicas coordinator with replicas_count={}", replicas_count);
 }
 
 ParallelReplicasReadingCoordinator::~ParallelReplicasReadingCoordinator()

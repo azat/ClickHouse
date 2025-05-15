@@ -24,6 +24,7 @@ public:
 
     void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement);
     ParallelReadResponse handleRequest(ParallelReadRequest request);
+    ParallelReplicasIndexAnalysisResponse handleIndexAnalysisRequest(ParallelReplicasIndexAnalysisRequest request, size_t replica_num);
 
     /// Called when some replica is unavailable and we skipped it.
     /// This is needed to "finalize" reading state e.g. spread all the marks using
@@ -42,6 +43,7 @@ public:
 private:
     void initialize(CoordinationMode mode);
     bool isReadingCompleted() const;
+    RangesInDataPartsDescription getRootPartsForReplica(const RangesInDataPartsDescription & parts, size_t replica_num);
 
     std::mutex mutex;
     const size_t replicas_count{0};
@@ -56,6 +58,8 @@ private:
     /// The problem is `markReplicaAsUnavailable` might be called before any of these requests happened.
     /// In this case we will remember the numbers of unavailable replicas and apply this knowledge later on initialization.
     std::vector<size_t> unavailable_nodes_registered_before_initialization;
+
+    LoggerPtr log;
 };
 
 using ParallelReplicasReadingCoordinatorPtr = std::shared_ptr<ParallelReplicasReadingCoordinator>;

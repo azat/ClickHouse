@@ -72,6 +72,7 @@ public:
         const std::optional<KeyCondition> & part_offset_condition,
         const std::optional<KeyCondition> & total_offset_condition,
         float ratio,
+        bool complete,
         MarkRanges * exact_ranges,
         const Settings & settings,
         LoggerPtr log);
@@ -212,7 +213,7 @@ public:
     /// For every part, select mark ranges to read.
     /// If 'check_limits = true' it will throw exception if the amount of data exceed the limits from settings.
     static RangesInDataParts filterPartsByPrimaryKeyAndSkipIndexes(
-        RangesInDataParts parts_with_ranges,
+        RangesInDataParts all_parts_with_ranges,
         StorageMetadataPtr metadata_snapshot,
         const ContextPtr & context,
         const KeyCondition & key_condition,

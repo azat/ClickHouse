@@ -111,4 +111,24 @@ struct InitialAllRangesAnnouncement
 using MergeTreeAllRangesCallback = std::function<void(InitialAllRangesAnnouncement)>;
 using MergeTreeReadTaskCallback = std::function<std::optional<ParallelReadResponse>(ParallelReadRequest)>;
 
+/// Two phase index analysis
+/// TODO: remove "Replicas" from the name
+struct ParallelReplicasIndexAnalysisRequest
+{
+    RangesInDataPartsDescription description;
+
+    void serialize(WriteBuffer & out, UInt64 initiator_protocol_version) const;
+    static ParallelReplicasIndexAnalysisRequest deserialize(ReadBuffer & in, UInt64 replica_protocol_version);
+};
+struct ParallelReplicasIndexAnalysisResponse
+{
+    RangesInDataPartsDescription description;
+
+    void deserialize(ReadBuffer & in);
+    void serialize(WriteBuffer & out, UInt64 initiator_protocol_version) const;
+
+    RangesInDataParts getPartsWithRanges(RangesInDataParts && all_parts_with_ranges) const;
+};
+using MergeTreeIndexAnalysisCallback = std::function<ParallelReplicasIndexAnalysisResponse(ParallelReplicasIndexAnalysisRequest)>;
+
 }

@@ -30,7 +30,7 @@ struct RangesInDataPartDescription
     void deserialize(ReadBuffer & in);
 };
 
-struct RangesInDataPartsDescription: public std::deque<RangesInDataPartDescription>
+struct RangesInDataPartsDescription : public std::deque<RangesInDataPartDescription>
 {
     using std::deque<RangesInDataPartDescription>::deque;
 

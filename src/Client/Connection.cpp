@@ -39,6 +39,7 @@
 #include <pcg_random.hpp>
 #include <base/scope_guard.h>
 #include <Common/FailPoint.h>
+#include <Storages/MergeTree/RequestResponse.h>
 
 #include <Common/config_version.h>
 #include <Common/scope_guard_safe.h>
@@ -1065,6 +1066,14 @@ void Connection::sendMergeTreeReadTaskResponse(const ParallelReadResponse & resp
     out->next();
 }
 
+void Connection::sendMergeTreeIndexAnalysisResponse(const ParallelReplicasIndexAnalysisResponse & response)
+{
+    writeVarUInt(Protocol::Client::MergeTreeIndexAnalysisResponse, *out);
+    response.serialize(*out, server_parallel_replicas_protocol_version);
+    out->finishChunk();
+    out->next();
+}
+
 void Connection::sendPreparedData(ReadBuffer & input, size_t size, const String & name)
 {
     /// NOTE 'Throttler' is not used in this method (could use, but it's not important right now).
@@ -1356,6 +1365,10 @@ Packet Connection::receivePacket()
                 res.request = receiveParallelReadRequest();
                 return res;
 
+            case Protocol::Server::MergeTreeIndexAnalysisRequest:
+                res.index_analysis = receiveParallelReplicasIndexAnalysis();
+                return res;
+
             case Protocol::Server::ProfileEvents:
                 res.block = receiveProfileEvents();
                 return res;
@@ -1534,6 +1547,11 @@ ParallelReadRequest Connection::receiveParallelReadRequest() const
 InitialAllRangesAnnouncement Connection::receiveInitialParallelReadAnnouncement() const
 {
     return InitialAllRangesAnnouncement::deserialize(*in, server_parallel_replicas_protocol_version);
+}
+
+ParallelReplicasIndexAnalysisRequest Connection::receiveParallelReplicasIndexAnalysis() const
+{
+    return ParallelReplicasIndexAnalysisRequest::deserialize(*in, server_parallel_replicas_protocol_version);
 }
 
 

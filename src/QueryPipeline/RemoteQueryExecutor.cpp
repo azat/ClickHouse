@@ -37,6 +37,7 @@ namespace ProfileEvents
     extern const Event SuspendSendingQueryToShard;
     extern const Event ReadTaskRequestsReceived;
     extern const Event MergeTreeReadTaskRequestsReceived;
+    extern const Event MergeTreeParallelReplicasIndexAnalysisRequestsReceived;
     extern const Event ParallelReplicasAvailableCount;
 }
 
@@ -634,6 +635,11 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             processMergeTreeReadTaskRequest(packet.request.value());
             return ReadResult(ReadResult::Type::ParallelReplicasToken);
 
+        case Protocol::Server::MergeTreeIndexAnalysisRequest:
+            chassert(packet.index_analysis.has_value());
+            processMergeTreeIndexAnalysisRequest(packet.index_analysis.value());
+            return ReadResult(ReadResult::Type::ParallelReplicasToken);
+
         case Protocol::Server::MergeTreeAllRangesAnnouncement:
             chassert(packet.announcement.has_value());
             processMergeTreeInitialReadAnnouncement(packet.announcement.value());
@@ -760,6 +766,16 @@ void RemoteQueryExecutor::processMergeTreeReadTaskRequest(ParallelReadRequest re
     ProfileEvents::increment(ProfileEvents::MergeTreeReadTaskRequestsReceived);
     auto response = extension->parallel_reading_coordinator->handleRequest(std::move(request));
     connections->sendMergeTreeReadTaskResponse(response);
+}
+
+void RemoteQueryExecutor::processMergeTreeIndexAnalysisRequest(ParallelReplicasIndexAnalysisRequest request)
+{
+    if (!extension || !extension->parallel_reading_coordinator)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Coordinator for parallel reading from replicas is not initialized");
+
+    ProfileEvents::increment(ProfileEvents::MergeTreeParallelReplicasIndexAnalysisRequestsReceived);
+    auto response = extension->parallel_reading_coordinator->handleIndexAnalysisRequest(std::move(request), extension->replica_info->number_of_current_replica);
+    connections->sendMergeTreeIndexAnalysisResponse(response);
 }
 
 void RemoteQueryExecutor::processMergeTreeInitialReadAnnouncement(InitialAllRangesAnnouncement announcement)

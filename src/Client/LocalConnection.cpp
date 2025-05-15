@@ -764,6 +764,11 @@ void LocalConnection::sendMergeTreeReadTaskResponse(const ParallelReadResponse &
     throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Not implemented");
 }
 
+void LocalConnection::sendMergeTreeIndexAnalysisResponse(const ParallelReplicasIndexAnalysisResponse &)
+{
+    throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Not implemented");
+}
+
 ServerConnectionPtr LocalConnection::createConnection(
     const ConnectionParameters &,
     ContextPtr current_context,

@@ -6551,6 +6551,13 @@ The timeout in milliseconds for connecting to a remote replica during query exec
     DECLARE(Bool, parallel_replicas_for_cluster_engines, true, R"(
 Replace table function engines with their -Cluster alternatives
 )", 0) \
+    DECLARE(Bool, parallel_replicas_two_phase_index_analysis, false, R"(
+Use index analysis in two phases with parallel replicas:
+- during first phase only granulated primary key will be used (see primary_key_index_granualarity_granulas)
+- during second phase each replica will do complete index analysis (non-granulated PK, skipping indices)
+
+This can be benificial to avoid loading all indexes on all replicas.
+)", 0) \
     DECLARE_WITH_ALIAS(Bool, allow_experimental_analyzer, true, R"(
 Allow new query analyzer.
 )", IMPORTANT, enable_analyzer) \

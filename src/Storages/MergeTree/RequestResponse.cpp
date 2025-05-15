@@ -1,9 +1,11 @@
 #include <Storages/MergeTree/RequestResponse.h>
+#include <Storages/MergeTree/IMergeTreeDataPart.h>
 
 #include <Core/ProtocolDefines.h>
 #include <IO/ReadHelpers.h>
 #include <IO/VarInt.h>
 #include <IO/WriteHelpers.h>
+#include <Common/Exception.h>
 #include <Common/SipHash.h>
 
 #include <consistent_hashing.h>
@@ -15,6 +17,7 @@ namespace ErrorCodes
 {
 extern const int UNKNOWN_PROTOCOL;
 extern const int UNKNOWN_ELEMENT_OF_ENUM;
+extern const int LOGICAL_ERROR;
 }
 
 namespace
@@ -171,6 +174,48 @@ InitialAllRangesAnnouncement InitialAllRangesAnnouncement::deserialize(ReadBuffe
         readIntBinary(mark_segment_size, in);
 
     return InitialAllRangesAnnouncement{mode, description, replica_num, mark_segment_size};
+}
+
+void ParallelReplicasIndexAnalysisRequest::serialize(WriteBuffer & out, UInt64 /*initiator_protocol_version*/) const
+{
+    description.serialize(out);
+}
+
+ParallelReplicasIndexAnalysisRequest ParallelReplicasIndexAnalysisRequest::deserialize(ReadBuffer & in, UInt64 /*replica_protocol_version*/)
+{
+    ParallelReplicasIndexAnalysisRequest request;
+    request.description.deserialize(in);
+    return request;
+}
+
+void ParallelReplicasIndexAnalysisResponse::deserialize(ReadBuffer & in)
+{
+    description.deserialize(in);
+}
+
+RangesInDataParts ParallelReplicasIndexAnalysisResponse::getPartsWithRanges(RangesInDataParts && all_parts_with_ranges) const
+{
+    std::unordered_map<std::string, RangesInDataPart *> parts_map;
+    for (RangesInDataPart & part_with_range : all_parts_with_ranges)
+        parts_map[part_with_range.data_part->name] = &part_with_range;
+
+    RangesInDataParts res;
+    for (const auto & part_description : description)
+    {
+        const auto & part_name = part_description.info.getPartNameV1();
+        auto part_it = parts_map.find(part_name);
+        if (part_it == parts_map.end())
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Cannot find part {}", part_name);
+
+        part_it->second->ranges = part_description.ranges;
+        res.emplace_back(*part_it->second);
+    }
+    return res;
+}
+
+void ParallelReplicasIndexAnalysisResponse::serialize(WriteBuffer & out, UInt64 /*initiator_protocol_version*/) const
+{
+    description.serialize(out);
 }
 
 }
