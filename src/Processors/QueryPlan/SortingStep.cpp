@@ -74,7 +74,7 @@ size_t getMaxBytesInQueryBeforeExternalSort(double max_bytes_ratio_before_extern
     if (max_bytes_ratio_before_external_sort != 0.)
     {
         double ratio = max_bytes_ratio_before_external_sort;
-        if (ratio < 0 || ratio >= 1.)
+        if (ratio < 0 || ratio >= 1. || std::isnan(ratio))
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "Setting max_bytes_ratio_before_external_sort should be >= 0 and < 1 ({})", ratio);
 
         auto available_system_memory = getMostStrictAvailableSystemMemory();
