@@ -245,6 +245,14 @@ void MultiplexedConnections::sendMergeTreeReadTaskResponse(const ParallelReadRes
     current_connection->sendMergeTreeReadTaskResponse(response);
 }
 
+void MultiplexedConnections::sendMergeTreeIndexAnalysisResponse(const IndexAnalysisResponse & response)
+{
+    std::lock_guard lock(cancel_mutex);
+    if (cancelled)
+        return;
+    current_connection->sendMergeTreeIndexAnalysisResponse(response);
+}
+
 
 Packet MultiplexedConnections::receivePacket()
 {
@@ -304,6 +312,7 @@ Packet MultiplexedConnections::drain()
             case Protocol::Server::TimezoneUpdate:
             case Protocol::Server::MergeTreeAllRangesAnnouncement:
             case Protocol::Server::MergeTreeReadTaskRequest:
+            case Protocol::Server::MergeTreeIndexAnalysisRequest:
             case Protocol::Server::ReadTaskRequest:
             case Protocol::Server::PartUUIDs:
             case Protocol::Server::Data:
@@ -413,6 +422,7 @@ Packet MultiplexedConnections::receivePacketUnlocked(AsyncCallback async_callbac
         case Protocol::Server::TimezoneUpdate:
         case Protocol::Server::MergeTreeAllRangesAnnouncement:
         case Protocol::Server::MergeTreeReadTaskRequest:
+        case Protocol::Server::MergeTreeIndexAnalysisRequest:
         case Protocol::Server::ReadTaskRequest:
         case Protocol::Server::PartUUIDs:
         case Protocol::Server::Data:

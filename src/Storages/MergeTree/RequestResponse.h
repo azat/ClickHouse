@@ -111,4 +111,36 @@ struct InitialAllRangesAnnouncement
 using MergeTreeAllRangesCallback = std::function<void(InitialAllRangesAnnouncement)>;
 using MergeTreeReadTaskCallback = std::function<std::optional<ParallelReadResponse>(ParallelReadRequest)>;
 
+struct PartsRequestResponse
+{
+    using Parts = std::vector<String>;
+    static void serializeParts(const Parts & parts, WriteBuffer & out);
+    static Parts deserializeParts(ReadBuffer & in);
+};
+struct IndexAnalysisRequest : protected PartsRequestResponse
+{
+    using PartsRequestResponse::Parts;
+    Parts parts;
+
+    IndexAnalysisRequest() = default;
+    explicit IndexAnalysisRequest(Parts parts_);
+
+    void serialize(WriteBuffer & out, UInt64 initiator_protocol_version) const;
+    static IndexAnalysisRequest deserialize(ReadBuffer & in, UInt64 replica_protocol_version);
+};
+struct IndexAnalysisResponse : protected PartsRequestResponse
+{
+    using PartsRequestResponse::Parts;
+    Parts parts;
+
+    IndexAnalysisResponse() = default;
+    explicit IndexAnalysisResponse(Parts parts_);
+
+    void serialize(WriteBuffer & out, UInt64 initiator_protocol_version) const;
+    void deserialize(ReadBuffer & in);
+
+    RangesInDataParts getPartsWithRanges(RangesInDataParts && all_parts_with_ranges) const;
+};
+using MergeTreeIndexAnalysisCallback = std::function<IndexAnalysisResponse(IndexAnalysisRequest)>;
+
 }

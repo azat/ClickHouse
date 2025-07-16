@@ -57,6 +57,7 @@
 #include <Common/ElapsedTimeProfileEventIncrement.h>
 #include <Common/FailPoint.h>
 #include <Common/ProfileEvents.h>
+#include <Common/logger_useful.h>
 #include <Common/quoteString.h>
 
 #include <IO/WriteBufferFromOStream.h>
@@ -101,6 +102,7 @@ namespace Setting
     extern const SettingsBool allow_experimental_analyzer;
     extern const SettingsBool parallel_replicas_local_plan;
     extern const SettingsBool parallel_replicas_index_analysis_only_on_coordinator;
+    extern const SettingsBool parallel_replicas_index_analysis;
     extern const SettingsBool secondary_indices_enable_bulk_filtering;
     extern const SettingsBool vector_search_with_rescoring;
 }
@@ -687,14 +689,33 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
     bool find_exact_ranges,
     bool is_final_query)
 {
+    Stopwatch total_watch;
     const Settings & settings = context->getSettingsRef();
+    bool parallel_replicas_index_analysis = context->canUseTaskBasedParallelReplicas() ? settings[Setting::parallel_replicas_index_analysis] : false;
 
-    if (context->canUseParallelReplicasOnFollower() && settings[Setting::parallel_replicas_local_plan]
+    if (!parallel_replicas_index_analysis
+        && context->canUseParallelReplicasOnFollower()
+        && settings[Setting::parallel_replicas_local_plan]
         && settings[Setting::parallel_replicas_index_analysis_only_on_coordinator])
     {
         // Skip index analysis and return parts with all marks
         // The coordinator will chose ranges to read for workers based on index analysis on its side
         return parts_with_ranges;
+    }
+
+    if (parallel_replicas_index_analysis)
+    {
+        auto index_analysis_callback = context->getMergeTreeIndexAnalysisCallback();
+
+        /// Sync point for all replicas
+        /// FIXME: is it?
+        {
+            auto all_parts = parts_with_ranges.getPartsNames();
+            LOG_TRACE(log, "Sending parts for index analysis: {}", fmt::join(all_parts, ", "));
+            auto replicas_parts = index_analysis_callback(IndexAnalysisRequest{all_parts});
+            LOG_TRACE(log, "Received parts for index analysis: {}", fmt::join(replicas_parts.parts, ", "));
+            parts_with_ranges = replicas_parts.getPartsWithRanges(std::move(parts_with_ranges));
+        }
     }
 
     if (use_skip_indexes && settings[Setting::force_data_skipping_indices].changed)
@@ -1022,6 +1043,7 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
             .num_granules_after = stat.total_granules - stat.granules_dropped});
     }
 
+    LOG_TRACE(log, "Index analysis done in {}us", total_watch.elapsedMicroseconds());
     return parts_with_ranges;
 }
 

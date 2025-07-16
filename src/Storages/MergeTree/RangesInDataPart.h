@@ -30,7 +30,7 @@ struct RangesInDataPartDescription
     void deserialize(ReadBuffer & in);
 };
 
-struct RangesInDataPartsDescription: public std::deque<RangesInDataPartDescription>
+struct RangesInDataPartsDescription : public std::deque<RangesInDataPartDescription>
 {
     using std::deque<RangesInDataPartDescription>::deque;
 
@@ -88,6 +88,7 @@ struct RangesInDataParts : public std::vector<RangesInDataPart>
 
     explicit RangesInDataParts(const DataPartsVector & parts);
     RangesInDataPartsDescription getDescriptions() const;
+    std::vector<String> getPartsNames() const;
 
     size_t getMarksCountAllParts() const;
     size_t getRowsCountAllParts() const;

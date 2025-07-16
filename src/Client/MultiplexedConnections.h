@@ -43,6 +43,7 @@ public:
 
     void sendClusterFunctionReadTaskResponse(const ClusterFunctionReadTaskResponse & response) override;
     void sendMergeTreeReadTaskResponse(const ParallelReadResponse & response) override;
+    void sendMergeTreeIndexAnalysisResponse(const IndexAnalysisResponse & response) override;
 
     Packet receivePacket() override;
 

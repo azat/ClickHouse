@@ -141,6 +141,7 @@ namespace CurrentMetrics
     extern const Metric QueryThread;
     extern const Metric ReadTaskRequestsSent;
     extern const Metric MergeTreeReadTaskRequestsSent;
+    extern const Metric MergeTreeParallelReplicasIndexAnalysisRequestsSend;
     extern const Metric MergeTreeAllRangesAnnouncementsSent;
 }
 
@@ -148,6 +149,8 @@ namespace ProfileEvents
 {
     extern const Event ReadTaskRequestsSent;
     extern const Event MergeTreeReadTaskRequestsSent;
+    extern const Event MergeTreeParallelReplicasIndexAnalysisRequestsSend;
+    extern const Event MergeTreeParallelReplicasIndexAnalysisRequestsElapsedMicroseconds;
     extern const Event MergeTreeAllRangesAnnouncementsSent;
     extern const Event ReadTaskRequestsSentElapsedMicroseconds;
     extern const Event MergeTreeReadTaskRequestsSentElapsedMicroseconds;
@@ -722,6 +725,20 @@ void TCPHandler::runImpl()
                 ProfileEvents::increment(ProfileEvents::MergeTreeReadTaskRequestsSent);
                 auto res = receivePartitionMergeTreeReadTaskResponse(query_state.value());
                 ProfileEvents::increment(ProfileEvents::MergeTreeReadTaskRequestsSentElapsedMicroseconds, watch.elapsedMicroseconds());
+                return res;
+            });
+
+            query_state->query_context->setMergeTreeIndexAnalysisCallback([this, &query_state](IndexAnalysisRequest request) -> IndexAnalysisResponse
+            {
+                Stopwatch watch;
+                CurrentMetrics::Increment callback_metric_increment(CurrentMetrics::MergeTreeParallelReplicasIndexAnalysisRequestsSend);
+
+                std::lock_guard lock(callback_mutex);
+                checkIfQueryCanceled(*query_state);
+                sendMergeTreeIndexAnalysisCallback(std::move(request));
+                ProfileEvents::increment(ProfileEvents::MergeTreeParallelReplicasIndexAnalysisRequestsSend);
+                auto res = receiveMergeTreeIndexAnalysisResponse(query_state.value());
+                ProfileEvents::increment(ProfileEvents::MergeTreeParallelReplicasIndexAnalysisRequestsElapsedMicroseconds, watch.elapsedMicroseconds());
                 return res;
             });
 
@@ -1487,6 +1504,16 @@ void TCPHandler::sendMergeTreeReadTaskRequest(ParallelReadRequest request)
 }
 
 
+void TCPHandler::sendMergeTreeIndexAnalysisCallback(IndexAnalysisRequest request)
+{
+    writeVarUInt(Protocol::Server::MergeTreeIndexAnalysisRequest, *out);
+    request.serialize(*out, client_parallel_replicas_protocol_version);
+
+    out->finishChunk();
+    out->next();
+}
+
+
 void TCPHandler::sendProfileInfo(QueryState &, const ProfileInfo & info)
 {
     writeVarUInt(Protocol::Server::ProfileInfo, *out);
@@ -2031,6 +2058,32 @@ std::optional<ParallelReadResponse> TCPHandler::receivePartitionMergeTreeReadTas
         default:
             throw Exception(ErrorCodes::UNEXPECTED_PACKET_FROM_CLIENT,
                 "Received {} packet after requesting read task",
+                Protocol::Client::toString(packet_type));
+    }
+}
+
+
+IndexAnalysisResponse TCPHandler::receiveMergeTreeIndexAnalysisResponse(QueryState & state)
+{
+    UInt64 packet_type = 0;
+    readVarUInt(packet_type, *in);
+
+    switch (packet_type)
+    {
+        case Protocol::Client::Cancel:
+            processCancel(state);
+            return {};
+
+        case Protocol::Client::MergeTreeIndexAnalysisResponse:
+        {
+            IndexAnalysisResponse response;
+            response.deserialize(*in);
+            return response;
+        }
+
+        default:
+            throw Exception(ErrorCodes::UNEXPECTED_PACKET_FROM_CLIENT,
+                "Received {} packet after requesting index analysis",
                 Protocol::Client::toString(packet_type));
     }
 }

@@ -125,6 +125,8 @@ public:
 
     void sendMergeTreeReadTaskResponse(const ParallelReadResponse & response) override;
 
+    void sendMergeTreeIndexAnalysisResponse(const IndexAnalysisResponse & response) override;
+
     void sendExternalTablesData(ExternalTablesData & data) override;
 
     bool poll(size_t timeout_microseconds/* = 0 */) override;
@@ -323,6 +325,7 @@ private:
     Progress receiveProgress() const;
     ParallelReadRequest receiveParallelReadRequest() const;
     InitialAllRangesAnnouncement receiveInitialParallelReadAnnouncement() const;
+    IndexAnalysisRequest receiveParallelReplicasIndexAnalysis() const;
     ProfileInfo receiveProfileInfo() const;
 
     void initInputBuffers();

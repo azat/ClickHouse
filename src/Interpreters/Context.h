@@ -139,6 +139,8 @@ class IOUringReader;
 struct MergeTreeSettings;
 struct DistributedSettings;
 struct InitialAllRangesAnnouncement;
+struct IndexAnalysisRequest;
+struct IndexAnalysisResponse;
 struct ParallelReadRequest;
 struct ParallelReadResponse;
 class S3SettingsByEndpoint;
@@ -241,6 +243,7 @@ using ClusterFunctionReadTaskResponsePtr = std::shared_ptr<ClusterFunctionReadTa
 using ClusterFunctionReadTaskCallback = std::function<ClusterFunctionReadTaskResponsePtr()>;
 
 using MergeTreeAllRangesCallback = std::function<void(InitialAllRangesAnnouncement)>;
+using MergeTreeIndexAnalysisCallback = std::function<IndexAnalysisResponse(IndexAnalysisRequest)>;
 using MergeTreeReadTaskCallback = std::function<std::optional<ParallelReadResponse>(ParallelReadRequest)>;
 
 using BlockMarshallingCallback = std::function<Block(const Block & block)>;
@@ -360,6 +363,7 @@ protected:
     /// some ranges from some part and initiator will tell the replica about whether it is accepted or denied.
     std::optional<MergeTreeReadTaskCallback> merge_tree_read_task_callback;
     std::optional<MergeTreeAllRangesCallback> merge_tree_all_ranges_callback;
+    std::optional<MergeTreeIndexAnalysisCallback> merge_tree_index_analysis_callback;
     UUID parallel_replicas_group_uuid{UUIDHelpers::Nil};
 
     BlockMarshallingCallback block_marshalling_callback;
@@ -1519,6 +1523,9 @@ public:
 
     MergeTreeAllRangesCallback getMergeTreeAllRangesCallback() const;
     void setMergeTreeAllRangesCallback(MergeTreeAllRangesCallback && callback);
+
+    MergeTreeIndexAnalysisCallback getMergeTreeIndexAnalysisCallback() const;
+    void setMergeTreeIndexAnalysisCallback(MergeTreeIndexAnalysisCallback && callback);
 
     BlockMarshallingCallback getBlockMarshallingCallback() const;
     void setBlockMarshallingCallback(BlockMarshallingCallback && callback);

@@ -1,9 +1,11 @@
 #include <Storages/MergeTree/RequestResponse.h>
+#include <Storages/MergeTree/IMergeTreeDataPart.h>
 
 #include <Core/ProtocolDefines.h>
 #include <IO/ReadHelpers.h>
 #include <IO/VarInt.h>
 #include <IO/WriteHelpers.h>
+#include <Common/Exception.h>
 #include <Common/SipHash.h>
 
 #include <consistent_hashing.h>
@@ -15,6 +17,7 @@ namespace ErrorCodes
 {
 extern const int UNKNOWN_PROTOCOL;
 extern const int UNKNOWN_ELEMENT_OF_ENUM;
+extern const int LOGICAL_ERROR;
 }
 
 namespace
@@ -171,6 +174,74 @@ InitialAllRangesAnnouncement InitialAllRangesAnnouncement::deserialize(ReadBuffe
         readIntBinary(mark_segment_size, in);
 
     return InitialAllRangesAnnouncement{mode, description, replica_num, mark_segment_size};
+}
+
+void PartsRequestResponse::serializeParts(const Parts & parts, WriteBuffer & out)
+{
+    writeIntBinary(static_cast<UInt64>(parts.size()), out);
+    for (const auto & part : parts)
+        writeStringBinary(part, out);
+}
+
+PartsRequestResponse::Parts PartsRequestResponse::deserializeParts(ReadBuffer & in)
+{
+    constexpr size_t parts_limit = 100'000'000;
+    UInt64 size;
+    readIntBinary(size, in);
+    if (size > parts_limit)
+        throw Exception(ErrorCodes::CORRUPTED_DATA, "Too big number of parts {} (limit {})", size, parts_limit);
+
+    Parts parts(size);
+    for (size_t i = 0; i < size; ++i)
+        readStringBinary(parts[i], in);
+
+    return parts;
+}
+
+IndexAnalysisRequest::IndexAnalysisRequest(Parts parts_)
+    : parts(parts_)
+{}
+
+void IndexAnalysisRequest::serialize(WriteBuffer & out, UInt64 /*initiator_protocol_version*/) const
+{
+    serializeParts(parts, out);
+}
+
+IndexAnalysisRequest IndexAnalysisRequest::deserialize(ReadBuffer & in, UInt64 /*replica_protocol_version*/)
+{
+    auto parts = deserializeParts(in);
+    return IndexAnalysisRequest{std::move(parts)};
+}
+
+IndexAnalysisResponse::IndexAnalysisResponse(Parts parts_)
+    : parts(parts_)
+{}
+
+void IndexAnalysisResponse::serialize(WriteBuffer & out, UInt64 /*initiator_protocol_version*/) const
+{
+    serializeParts(parts, out);
+}
+
+void IndexAnalysisResponse::deserialize(ReadBuffer & in)
+{
+    parts = deserializeParts(in);
+}
+
+RangesInDataParts IndexAnalysisResponse::getPartsWithRanges(RangesInDataParts && all_parts_with_ranges) const
+{
+    std::unordered_map<std::string, RangesInDataPart *> parts_map;
+    for (RangesInDataPart & part_with_range : all_parts_with_ranges)
+        parts_map[part_with_range.data_part->name] = &part_with_range;
+
+    RangesInDataParts res;
+    for (const auto & part_name : parts)
+    {
+        auto part_it = parts_map.find(part_name);
+        if (part_it == parts_map.end())
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Cannot find part {}", part_name);
+        res.emplace_back(*part_it->second);
+    }
+    return res;
 }
 
 }

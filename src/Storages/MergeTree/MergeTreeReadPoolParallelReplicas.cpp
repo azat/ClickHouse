@@ -2,6 +2,7 @@
 
 #include <Core/Settings.h>
 #include <Interpreters/Context.h>
+#include <fmt/ranges.h>
 
 #include <algorithm>
 #include <iterator>
@@ -181,7 +182,12 @@ MergeTreeReadTaskPtr MergeTreeReadPoolParallelReplicas::getTask(size_t /*task_id
     auto part_it
         = std::ranges::find_if(per_part_infos, [&current_task](const auto & part) { return part->data_part->info == current_task.info; });
     if (part_it == per_part_infos.end())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Assignment contains an unknown part (current_task: {})", current_task.describe());
+    {
+        Strings parts;
+        for (const auto & part : per_part_infos)
+            parts.push_back(part->data_part->name);
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Assignment contains an unknown part (current_task: {}, per_parts_infos: {})", current_task.describe(), fmt::join(parts, ", "));
+    }
     const size_t part_idx = std::distance(per_part_infos.begin(), part_it);
 
     MarkRanges ranges_to_read;

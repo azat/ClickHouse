@@ -283,6 +283,7 @@ private:
     ClusterFunctionReadTaskResponsePtr receiveClusterFunctionReadTaskResponse(QueryState & state) TSA_REQUIRES(callback_mutex);
 
     std::optional<ParallelReadResponse> receivePartitionMergeTreeReadTaskResponse(QueryState & state) TSA_REQUIRES(callback_mutex);
+    IndexAnalysisResponse receiveMergeTreeIndexAnalysisResponse(QueryState & state) TSA_REQUIRES(callback_mutex);
 
     void processCancel(QueryState & state) TSA_REQUIRES(callback_mutex);
     void processQuery(std::optional<QueryState> & state);
@@ -321,6 +322,7 @@ private:
     void sendReadTaskRequest() TSA_REQUIRES(callback_mutex);
     void sendMergeTreeAllRangesAnnouncement(QueryState & state, InitialAllRangesAnnouncement announcement) TSA_REQUIRES(callback_mutex);
     void sendMergeTreeReadTaskRequest(ParallelReadRequest request) TSA_REQUIRES(callback_mutex);
+    void sendMergeTreeIndexAnalysisCallback(IndexAnalysisRequest request) TSA_REQUIRES(callback_mutex);
     void sendProfileInfo(QueryState & state, const ProfileInfo & info);
     void sendTotals(QueryState & state, const Block & totals);
     void sendExtremes(QueryState & state, const Block & extremes);

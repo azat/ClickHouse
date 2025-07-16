@@ -150,6 +150,14 @@ RangesInDataPartsDescription RangesInDataParts::getDescriptions() const
     return result;
 }
 
+std::vector<String> RangesInDataParts::getPartsNames() const
+{
+    std::vector<String> result;
+    for (const auto & part : *this)
+        result.emplace_back(part.data_part->name);
+    return result;
+}
+
 
 size_t RangesInDataParts::getMarksCountAllParts() const
 {

@@ -1,10 +1,13 @@
 #pragma once
 
 #include <Storages/MergeTree/RequestResponse.h>
+#include <base/defines.h>
 
 #include <memory>
 #include <mutex>
 #include <set>
+#include <map>
+#include <unordered_set>
 #include <vector>
 
 namespace DB
@@ -24,12 +27,13 @@ public:
 
     void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement);
     ParallelReadResponse handleRequest(ParallelReadRequest request);
+    IndexAnalysisResponse handleIndexAnalysisRequest(IndexAnalysisRequest request, size_t replica_num);
 
     /// Called when some replica is unavailable and we skipped it.
     /// This is needed to "finalize" reading state e.g. spread all the marks using
     /// consistent hashing, because otherwise coordinator will continue working in
     /// "pending" state waiting for the unavailable replica to send the announcement.
-    void markReplicaAsUnavailable(size_t replica_number);
+    void markReplicaAsUnavailable(size_t replica_num);
 
     /// needed to report total rows to read
     void setProgressCallback(ProgressCallback callback);
@@ -40,8 +44,13 @@ public:
     void setReadCompletedCallback(ReadCompletedCallback callback);
 
 private:
-    void initialize(CoordinationMode mode);
+    void initialize(CoordinationMode mode) TSA_REQUIRES(mutex);
     bool isReadingCompleted() const;
+
+    IndexAnalysisResponse::Parts getPartsForReplica(IndexAnalysisRequest::Parts & parts, size_t replica_num, size_t available_replicas);
+
+    /// <replica_index, <list of parts>>
+    std::vector<std::unordered_set<std::string>> replicas_parts TSA_GUARDED_BY(mutex);
 
     std::mutex mutex;
     const size_t replicas_count{0};
@@ -56,6 +65,10 @@ private:
     /// The problem is `markReplicaAsUnavailable` might be called before any of these requests happened.
     /// In this case we will remember the numbers of unavailable replicas and apply this knowledge later on initialization.
     std::vector<size_t> unavailable_nodes_registered_before_initialization;
+    /// <replica_num, offset from 0>
+    std::map<size_t, size_t> replicas_offsets TSA_GUARDED_BY(mutex);
+
+    LoggerPtr log;
 };
 
 using ParallelReplicasReadingCoordinatorPtr = std::shared_ptr<ParallelReplicasReadingCoordinator>;

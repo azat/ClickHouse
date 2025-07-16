@@ -1107,6 +1107,7 @@ ContextData::ContextData(const ContextData &o) :
     next_task_callback(o.next_task_callback),
     merge_tree_read_task_callback(o.merge_tree_read_task_callback),
     merge_tree_all_ranges_callback(o.merge_tree_all_ranges_callback),
+    merge_tree_index_analysis_callback(o.merge_tree_index_analysis_callback),
     parallel_replicas_group_uuid(o.parallel_replicas_group_uuid),
     block_marshalling_callback(o.block_marshalling_callback),
     is_under_restore(o.is_under_restore),
@@ -6267,6 +6268,17 @@ MergeTreeAllRangesCallback Context::getMergeTreeAllRangesCallback() const
 void Context::setMergeTreeAllRangesCallback(MergeTreeAllRangesCallback && callback)
 {
     merge_tree_all_ranges_callback = callback;
+}
+
+MergeTreeIndexAnalysisCallback Context::getMergeTreeIndexAnalysisCallback() const
+{
+    if (!merge_tree_index_analysis_callback.has_value())
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Index analysis callback is not set for query with id: {}", getInitialQueryId());
+    return merge_tree_index_analysis_callback.value();
+}
+void Context::setMergeTreeIndexAnalysisCallback(MergeTreeIndexAnalysisCallback && callback)
+{
+    merge_tree_index_analysis_callback = callback;
 }
 
 BlockMarshallingCallback Context::getBlockMarshallingCallback() const
