@@ -412,7 +412,6 @@ void DefaultCoordinator::initializeReadingState(InitialAllRangesAnnouncement ann
 
 void DefaultCoordinator::markReplicaAsUnavailable(size_t replica_number)
 {
-    LOG_DEBUG(log, "Replica number {} is unavailable", replica_number);
     chassert(replica_number < replicas_count);
 
     ++unavailable_replicas_count;
@@ -906,8 +905,6 @@ void InOrderCoordinator<mode>::markReplicaAsUnavailable(size_t replica_number)
 {
     if (stats[replica_number].is_unavailable == false)
     {
-        LOG_DEBUG(log, "Replica number {} is unavailable", replica_number);
-
         stats[replica_number].is_unavailable = true;
         ++unavailable_replicas_count;
     }
@@ -1187,6 +1184,8 @@ ParallelReadResponse ParallelReplicasReadingCoordinator::handleRequest(ParallelR
 void ParallelReplicasReadingCoordinator::markReplicaAsUnavailable(size_t replica_number)
 {
     ProfileEvents::increment(ProfileEvents::ParallelReplicasUnavailableCount);
+    LOG_DEBUG(log, "Replica number {} is unavailable", replica_number);
+
 
     std::lock_guard lock(mutex);
 
