@@ -16,6 +16,7 @@ else()
     set(RECONFIGURE_MESSAGE_LEVEL WARNING)
 endif()
 
+include (cmake/rust_link_order.cmake)
 include (cmake/arch.cmake)
 include (cmake/target.cmake)
 include (cmake/tools.cmake)
