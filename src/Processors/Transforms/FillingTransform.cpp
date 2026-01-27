@@ -18,7 +18,7 @@
 namespace DB
 {
 
-constexpr static bool debug_logging_enabled = false;
+constexpr static bool debug_logging_enabled = true;
 
 template <typename T>
 inline static void logDebug(const char * key, const T & value, const char * separator = " : ")
