@@ -3,6 +3,9 @@
 #include <Common/FieldVisitors.h>
 #include <Common/FieldVisitorConvertToNumber.h>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+
 namespace DB
 {
 
@@ -11,10 +14,10 @@ namespace DB
 class FieldVisitorScale : public StaticVisitor<void>
 {
 private:
-    Int32 rhs;
+    Int64 rhs;
 
 public:
-    explicit FieldVisitorScale(Int32 rhs_);
+    explicit FieldVisitorScale(Int64 rhs_);
 
     void operator() (Int64 & x) const;
     void operator() (UInt64 & x) const;
@@ -41,3 +44,5 @@ public:
 };
 
 }
+
+#pragma clang diagnostic pop

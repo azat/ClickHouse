@@ -8,7 +8,7 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
-FieldVisitorScale::FieldVisitorScale(Int32 rhs_) : rhs(rhs_) {}
+FieldVisitorScale::FieldVisitorScale(Int64 rhs_) : rhs(rhs_) {}
 
 void FieldVisitorScale::operator() (Int64 & x) const { x *= rhs; }
 void FieldVisitorScale::operator() (UInt64 & x) const { x *= rhs; }
