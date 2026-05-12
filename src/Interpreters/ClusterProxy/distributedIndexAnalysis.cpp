@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <Common/CurrentThread.h>
 #include <unordered_map>
 #include <Columns/ColumnArray.h>
@@ -63,6 +64,7 @@ namespace DB::Setting
     extern const SettingsNonZeroUInt64 max_parallel_replicas;
     extern const SettingsBool use_hedged_requests;
     extern const SettingsBool distributed_index_analysis_only_on_coordinator;
+    extern const SettingsFloat distributed_index_analysis_balance_tolerance;
 }
 
 namespace ProfileEvents
@@ -72,6 +74,7 @@ namespace ProfileEvents
     extern const Event DistributedIndexAnalysisReplicaUnavailable;
     extern const Event DistributedIndexAnalysisMissingParts;
     extern const Event DistributedIndexAnalysisScheduledReplicas;
+    extern const Event DistributedIndexAnalysisRebalancedParts;
     extern const Event DistributedConnectionFailAtAll;
 }
 
@@ -497,13 +500,126 @@ private:
         for (const auto i : active_remote_indexes)
             original_to_remote[remote_pools[i].index] = i;
 
-        for (const auto & part_ranges : parts_with_ranges)
-        {
-            chassert(part_ranges.exact_ranges.empty());
+        const size_t num_active = active_original_indexes.size();
+        const size_t num_parts = parts_with_ranges.size();
 
+        /// Phase 1: consistent-hash baseline (current behavior).
+        /// Each part is independently hashed to a slot.
+        std::vector<size_t> part_slot(num_parts);
+        std::vector<size_t> slot_marks(num_active, 0);
+        size_t total_marks = 0;
+
+        for (size_t pi = 0; pi < num_parts; ++pi)
+        {
+            chassert(parts_with_ranges[pi].exact_ranges.empty());
+
+            const auto & part_name = parts_with_ranges[pi].data_part->name;
+            const auto slot = partReplica(part_name, num_active);
+            part_slot[pi] = slot;
+            const auto marks = parts_with_ranges[pi].getMarksCount();
+            slot_marks[slot] += marks;
+            total_marks += marks;
+        }
+
+        /// Phase 2: size-aware rebalancing.
+        /// While any replica exceeds `avg * (1 + tolerance)`, move the largest part
+        /// that fits the gap on the most underloaded replica away from the most
+        /// overloaded one. All decisions are deterministic across replicas, so each
+        /// replica computes the same assignment from the same inputs.
+        const float tolerance = settings[Setting::distributed_index_analysis_balance_tolerance];
+        if (tolerance >= 0.0f && num_active > 1 && total_marks > 0)
+        {
+            const size_t upper = static_cast<size_t>(std::ceil(
+                static_cast<double>(total_marks) / static_cast<double>(num_active) * (1.0 + tolerance)));
+
+            size_t moves = 0;
+            for (;;)
+            {
+                /// Most overloaded slot (ties: lowest slot index).
+                size_t src = 0;
+                for (size_t s = 1; s < num_active; ++s)
+                    if (slot_marks[s] > slot_marks[src])
+                        src = s;
+
+                if (slot_marks[src] <= upper)
+                    break;
+
+                /// Most underloaded slot (ties: lowest slot index, exclude src).
+                size_t dst = (src == 0) ? 1 : 0;
+                for (size_t s = 0; s < num_active; ++s)
+                    if (s != src && slot_marks[s] < slot_marks[dst])
+                        dst = s;
+
+                /// Space on `dst` before hitting the upper bound.
+                const size_t gap = (upper > slot_marks[dst]) ? (upper - slot_marks[dst]) : 0;
+
+                /// Find the best part on `src` to move:
+                ///   - prefer parts that fit within `gap` (do not overload `dst`);
+                ///   - among fitting parts: largest (best gap utilization);
+                ///   - among non-fitting parts: smallest (least overshoot);
+                ///   - ties broken by part name for cross-replica determinism.
+                size_t best = num_parts;
+                size_t best_marks = 0;
+                bool best_fits = false;
+                const std::string * best_name = nullptr;
+
+                for (size_t pi = 0; pi < num_parts; ++pi)
+                {
+                    if (part_slot[pi] != src)
+                        continue;
+
+                    const size_t m = parts_with_ranges[pi].getMarksCount();
+                    const bool fits = (m <= gap);
+                    const std::string & name = parts_with_ranges[pi].data_part->name;
+
+                    bool better;
+                    if (best == num_parts)
+                        better = true;
+                    else if (fits != best_fits)
+                        better = fits;
+                    else if (fits)
+                        better = m > best_marks || (m == best_marks && name < *best_name);
+                    else
+                        better = m < best_marks || (m == best_marks && name < *best_name);
+
+                    if (better)
+                    {
+                        best = pi;
+                        best_marks = m;
+                        best_fits = fits;
+                        best_name = &name;
+                    }
+                }
+
+                if (best == num_parts)
+                    break;
+
+                /// Only move if `dst` after move stays strictly below `src` before move,
+                /// otherwise we just flip the imbalance.
+                if (slot_marks[dst] + best_marks >= slot_marks[src])
+                    break;
+
+                part_slot[best] = dst;
+                slot_marks[src] -= best_marks;
+                slot_marks[dst] += best_marks;
+                ++moves;
+            }
+
+            if (moves > 0)
+            {
+                ProfileEvents::increment(ProfileEvents::DistributedIndexAnalysisRebalancedParts, moves);
+                LOG_DEBUG(logger, "Rebalanced {} parts across {} replicas (tolerance={}, upper={}, marks per slot: {})",
+                    moves, num_active, tolerance, upper, slot_marks);
+            }
+        }
+
+        /// Phase 3: materialize result.
+        for (size_t pi = 0; pi < num_parts; ++pi)
+        {
+            const auto & part_ranges = parts_with_ranges[pi];
             const auto & part_name = part_ranges.data_part->name;
-            const auto hash_slot = partReplica(part_name, active_original_indexes.size());
-            const auto original_index = active_original_indexes[hash_slot];
+            const auto original_index = active_original_indexes[part_slot[pi]];
+
             if (original_index == local_original_index)
             {
                 result.local_parts.push_back(part_name);

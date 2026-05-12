@@ -403,6 +403,7 @@
     M(DistributedIndexAnalysisReplicaFallback, "Number of times distributed index analysis failed on one of replicas with fallback to local replica", ValueType::Number) \
     M(DistributedIndexAnalysisParts, "Number of parts send for distributed index analysis", ValueType::Number) \
     M(DistributedIndexAnalysisMissingParts, "Number of missing parts during distributed index analysis that will be resolved locally", ValueType::Number) \
+    M(DistributedIndexAnalysisRebalancedParts, "Number of parts moved away from their consistent-hash replica to balance index analysis work by size", ValueType::Number) \
     \
     M(WaitMarksLoadMicroseconds, "Time spent loading marks", ValueType::Microseconds) \
     M(BackgroundLoadingMarksTasks, "Number of background tasks for loading marks", ValueType::Number) \

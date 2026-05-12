@@ -42,6 +42,7 @@ const VersionToSettingsChangesMap & getSettingsChangesHistory()
         addSettingsChanges(settings_changes_history, "26.5",
         {
             {"predicate_statistics_sample_rate", 0, 0, "New setting to collect predicate selectivity statistics into system.predicate_statistics_log"},
+            {"distributed_index_analysis_balance_tolerance", -1, -1, "New setting to enable size-aware part distribution for distributed index analysis."},
         });
         addSettingsChanges(settings_changes_history, "26.4",
         {

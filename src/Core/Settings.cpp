@@ -7267,6 +7267,22 @@ This prevents O(N^2) spawned queries when the predicate contains subqueries (e.g
 because each follower replica would otherwise independently trigger its own distributed index analysis,
 but makes distributed index analysis less efficient if large tables are used in the subqueries.
 )", 0) \
+    DECLARE(Float, distributed_index_analysis_balance_tolerance, -1, R"(
+Controls size-aware part distribution for distributed index analysis.
+
+By default (negative value) parts are distributed across replicas by `consistent_hashing(part_name)`,
+which is balanced by part count, not by part size. With many parts of unequal size this can leave one
+replica with most of the index analysis work.
+
+When set to a non-negative value, parts are first assigned to their consistent-hash home; then while
+any replica exceeds `avg_marks * (1 + tolerance)`, the largest part that fits the gap on the most
+underloaded replica is moved from the most overloaded one. The computation is fully deterministic
+across replicas — no coordinator state required.
+
+- `< 0` — disabled, use pure consistent hashing (default, current behavior).
+- `0.0` — perfectly balanced, maximum rebalancing moves.
+- `0.5` — allow 50% deviation from the average (sensible production value).
+)", 0) \
     DECLARE(Bool, distributed_index_analysis_for_non_shared_merge_tree, false, R"(
 Enable distributed index analysis even for non SharedMergeTree (cloud only engine).
 )", 0) \
