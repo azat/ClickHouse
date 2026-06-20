@@ -10,8 +10,10 @@ SYSTEM ENABLE FAILPOINT remote_query_executor_inject_exception_in_read;
 -- executor destructor, on an unrelated thread) unwinds the fiber and touches
 -- thread-local state of an already-gone thread (use-after-free, caught by
 -- sanitizers). The server staying alive below is the regression signal.
+-- prefer_localhost_replica = 0 forces the query through a RemoteQueryExecutor
+-- (otherwise a 127.0.0.1 replica is read locally and no read context is used).
 SELECT * FROM remote('127.0.0.1', numbers(1000000))
-SETTINGS async_socket_for_remote = 1, max_threads = 1
+SETTINGS async_socket_for_remote = 1, prefer_localhost_replica = 0, max_threads = 1
 FORMAT Null; -- { serverError FAULT_INJECTED }
 
 SYSTEM DISABLE FAILPOINT remote_query_executor_inject_exception_in_read;
