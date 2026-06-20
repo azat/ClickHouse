@@ -91,7 +91,10 @@ static void threadFunction(
         /// Finish lazy format in case of exception. Otherwise thread.join() may hung.
         data.lazy_format->finalize();
 
-        /// Do not set is_finished
+        /// Leave is_finished unset: cancel() is a no-op once is_finished is set,
+        /// and the executor must still be cancelled so that processors holding a
+        /// fiber (e.g. RemoteSource's read context) are cancelled on this thread,
+        /// before it is destroyed.
         return;
     }
 
