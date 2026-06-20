@@ -541,9 +541,6 @@ Block RemoteQueryExecutor::readBlock()
 
 RemoteQueryExecutor::ReadResult RemoteQueryExecutor::read()
 {
-    if (!sent_query)
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Query had not been sent");
-
     while (true)
     {
         LockAndBlocker lock(was_cancelled_mutex);
@@ -554,6 +551,12 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::read()
                 read_context->cancel();
             return ReadResult(Block());
         }
+
+        /// sendQuery() has to be called explicitly before reading.
+        /// The only way to get here without a sent query is a cancellation that
+        /// landed before the query was sent, which is handled by the check above.
+        if (!sent_query)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Query had not been sent");
 
         auto packet = connections->receivePacket();
         auto anything = processPacket(std::move(packet));
@@ -570,9 +573,6 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::read()
 
 RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAsync()
 {
-    if (!sent_query)
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Query had not been sent");
-
 #if defined(OS_LINUX)
     if (resent_query || !read_context)
     {
@@ -600,6 +600,10 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAsync()
                 read_context->cancel();
             return ReadResult(Block());
         }
+
+        /// See the comment in read().
+        if (!sent_query)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Query had not been sent");
 
         if (packet_in_progress)
         {
