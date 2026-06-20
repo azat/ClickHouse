@@ -63,11 +63,13 @@ namespace ErrorCodes
     extern const int UNKNOWN_PACKET_FROM_SERVER;
     extern const int DUPLICATED_PART_UUIDS;
     extern const int SYSTEM_ERROR;
+    extern const int FAULT_INJECTED;
 }
 
 namespace FailPoints
 {
     extern const char remote_query_executor_cancel_before_send[];
+    extern const char remote_query_executor_inject_exception_in_read[];
 }
 
 RemoteQueryExecutor::RemoteQueryExecutor(
@@ -624,6 +626,14 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAsync()
         }
 
         read_context->resume();
+
+        /// Raise an exception while the read context (fiber) is active, to test
+        /// that it is cancelled on this (worker) thread rather than from the
+        /// executor destructor on an unrelated thread.
+        fiu_do_on(FailPoints::remote_query_executor_inject_exception_in_read,
+        {
+            throw Exception(ErrorCodes::FAULT_INJECTED, "Injected exception while the read context is active");
+        });
 
         if (isReplicaUnavailable() || needToSkipUnavailableShard())
         {
