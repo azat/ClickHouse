@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <mutex>
+#include <numeric>
 #include <utility>
 #include <Common/Scheduler/CostUnit.h>
 #include <Common/Scheduler/MemoryReservation.h>
@@ -201,6 +202,12 @@ void MemoryReservation::syncImpl(const MemoryTracker * memory_tracker, bool spil
         metrics.apply();
         throwIfNeeded();
     }
+}
+
+ResourceCost MemoryReservation::getTotalReclaimable()
+{
+    std::lock_guard lock(mutex);
+    return std::accumulate(reclaimable.begin(), reclaimable.end(), ResourceCost{}, [&](const auto init, const auto & it) { return init + it.second; });
 }
 
 void MemoryReservation::updateReclaimable(const ISpillable * spillable, ResourceCost bytes)
