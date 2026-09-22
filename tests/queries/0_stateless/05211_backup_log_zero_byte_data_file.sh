@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: log-engine
+# Tags: log-engine, clickhouse-26.10
 
 CURDIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../shell_config.sh
