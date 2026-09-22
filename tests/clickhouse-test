@@ -4674,6 +4674,16 @@ class TestSuite:
             self.read_test_tags_and_random_settings_limits(self.suite_path, all_tests)
         )
         self.all_tags: Dict[str, Set[str]] = all_tags_and_random_settings_limits[0]
+        if args.upgrade_check:
+            # The suite is the previous release's copy; take the version tags from this repo's copy,
+            # since only it knows which server versions the test is valid for.
+            own_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "queries", suite)
+            if os.path.realpath(own_dir) != os.path.realpath(suite_path):
+                own_tags = self.read_test_tags_and_random_settings_limits(
+                    own_dir, [t for t in all_tests if os.path.exists(os.path.join(own_dir, t))]
+                )[0]
+                for test_name, tags in own_tags.items():
+                    self.all_tags[test_name] |= {t for t in tags if t.startswith("clickhouse-")}
         self.all_random_settings_limits: Dict[str, Dict[str, (int, int)]] = (all_tags_and_random_settings_limits[1])
         self.all_memory_limits: Dict[str, int] = (all_tags_and_random_settings_limits[2])
         self.sequential_tests = []
