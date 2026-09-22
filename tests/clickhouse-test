@@ -1658,6 +1658,7 @@ class FailureReason(enum.Enum):
     DISTRIBUTED_CACHE = "distributed-cache"
     NO_SHARED_OR_REPLICATED_MERGE_TREE = "no-shared-or-replicated-merge-tree"
     NO_STATELESS = "no-stateless"
+    OLD_SERVER = "server is older than the test requires"
     NO_STATEFUL = "no-stateful"
     NO_OPENSSL_FIPS = "no-openssl-fips"
     ENCRYPTED_STORAGE = "encrypted-storage"
@@ -3215,6 +3216,12 @@ class TestCase:
 
         if args.skip and any(s in self.name for s in args.skip):
             return FailureReason.SKIP
+
+        # clickhouse-X.Y: the test needs a server of version X.Y or newer
+        for tag in tags or ():
+            m = re.fullmatch(r"clickhouse-(\d+)\.(\d+)", tag)
+            if m and args.server_version < (int(m.group(1)), int(m.group(2))):
+                return FailureReason.OLD_SERVER
 
         if not USE_JINJA and self.ext.endswith("j2"):
             return FailureReason.NO_JINJA
@@ -5862,6 +5869,11 @@ RELEASE_NON_SANITIZED = False
 SANITIZED = False
 
 
+def collect_server_version(args):
+    value = clickhouse_execute(args, "SELECT version()").decode()
+    return tuple(int(x) for x in value.split(".")[:2])
+
+
 def collect_build_flags(args):
     global RELEASE_NON_SANITIZED
     global SANITIZED
@@ -6583,6 +6595,7 @@ def main(args):
         if not check_server_started(args_sticky):
             raise TestException(f"Sticky host '{host}' not responding")
 
+    args.server_version = collect_server_version(args)
     args.build_flags = collect_build_flags(args)
     args.changed_merge_tree_settings = collect_changed_merge_tree_settings(args)
 
