@@ -142,7 +142,8 @@ Supported values:
 - `clickhouse_json` — instead of SQL text, the query is interpreted as a JSON AST (the output of `parseQueryToJSON`). The `SET` query is still recognized in plain form so that the dialect can be switched back. Requires the experimental setting `enable_json_ast_dialect`.
 - `logsql` — LogsQL, the log query language of VictoriaLogs, translated into `SELECT` queries over the logs table configured by the `logsql_database` and `logsql_table` settings. Requires the experimental setting `allow_experimental_logsql_dialect`.
 - `trino` — Trino SQL: translates Trino syntax (`ARRAY[...]`, `TRY_CAST`, `UNNEST`, ...) and maps Trino function names to their ClickHouse equivalents. Requires the experimental setting `enable_trino_dialect`.
-)", 0)\
+)", EXPERIMENTAL, \
+        {"26.10", "", "", "Non default dialect is now experimental"}) \
     DECLARE(UInt64, min_compress_block_size, 65536, R"(
 For [MergeTree](/reference/engines/table-engines/mergetree-family/mergetree) tables. In order to reduce latency when processing queries, a block is compressed when writing the next mark if its size is at least `min_compress_block_size`. By default, 65,536.
 
