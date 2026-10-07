@@ -34,7 +34,8 @@ BlockNestedLoopBuildTransform::BlockNestedLoopBuildTransform(
     , finish_counter(std::move(finish_counter_))
     , stream_index(stream_index_)
 {
-    spillable = data->canSpill();
+    data->registerProcessor();
+    spillable_registered = true;
 }
 
 InputPort * BlockNestedLoopBuildTransform::addTotalsPort()
@@ -46,6 +47,14 @@ InputPort * BlockNestedLoopBuildTransform::addTotalsPort()
 }
 
 IProcessor::Status BlockNestedLoopBuildTransform::prepare()
+{
+    const auto status = prepareImpl();
+    if (status == Status::Finished && std::exchange(spillable_registered, false))
+        data->unregisterProcessor();
+    return status;
+}
+
+IProcessor::Status BlockNestedLoopBuildTransform::prepareImpl()
 {
     auto & output = outputs.front();
     auto & input = inputs.front();
@@ -127,22 +136,6 @@ void BlockNestedLoopBuildTransform::work()
         data->setBuildSideTotals(std::move(block));
     else
         stop_reading = !data->addBlock(std::move(block), num_rows, stream_index);
-}
-
-ProcessorMemoryStats BlockNestedLoopBuildTransform::getMemoryStats()
-{
-    ProcessorMemoryStats stats;
-    stats.spillable_memory_bytes = data->getInMemoryBytes();
-    /// The blocks are written out one at a time, so what the spill needs on top of what it frees is
-    /// the largest of them, counted uncompressed - once as the block it decompresses into, once as
-    /// the buffer the temporary stream writes it through.
-    stats.need_reserved_memory_bytes = 2 * data->getMaxInMemoryBlockBytes();
-    return stats;
-}
-
-bool BlockNestedLoopBuildTransform::spillOnSize(size_t bytes)
-{
-    return data->spillInMemoryBlocks(bytes, stream_index);
 }
 
 void BlockNestedLoopBuildTransform::finishBuild()

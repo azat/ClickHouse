@@ -3,6 +3,7 @@
 #include <Columns/IColumn.h>
 #include <Core/Block.h>
 #include <Core/Joins.h>
+#include <Processors/ISpillable.h>
 #include <QueryPipeline/SizeLimits.h>
 
 #include <atomic>
@@ -119,7 +120,7 @@ struct BlockNestedLoopStoreSettings
 /// row count is kept either way, so the global row numbering - and with it the indexing of the
 /// match flags - does not change when a block moves out of memory. Blocks are read back through a
 /// `BuildSideBlockReader`.
-class BlockNestedLoopJoinData
+class BlockNestedLoopJoinData : public ISpillable
 {
 public:
     BlockNestedLoopJoinData(
@@ -129,7 +130,7 @@ public:
         const SizeLimits & size_limits_,
         BlockNestedLoopStoreSettings store_settings_ = {},
         size_t num_build_streams_ = 1);
-    ~BlockNestedLoopJoinData();
+    ~BlockNestedLoopJoinData() override;
 
     /// Appends one build block; `num_rows` is authoritative, because a block with no columns still
     /// has rows. Thread-safe. Returns false when the size limits are exceeded under
@@ -184,10 +185,10 @@ public:
     size_t getInMemoryBytes() const { return in_memory_bytes.load(std::memory_order_relaxed); }
     size_t getMaxInMemoryBlockBytes() const { return max_in_memory_block_bytes.load(std::memory_order_relaxed); }
     size_t getNumSpilledBlocks() const { return num_spilled_blocks.load(std::memory_order_relaxed); }
-    /// Streams every block that is still in memory out to the temporary file of `stream_index`, and
-    /// keeps the build side streaming from then on. Returns false when there is less than `min_bytes`
-    /// to gain. Thread-safe, and called by the query memory tracker through the build transform.
-    bool spillInMemoryBlocks(size_t min_bytes, size_t stream_index);
+    ProcessorMemoryStats getMemoryStats() const override;
+    /// Streams every resident block to the scheduler's own temporary file and keeps the build side
+    /// streaming from then on. Returns the bytes released, even if fewer than requested. Thread-safe.
+    size_t spill(size_t at_least_bytes) override;
 
     /// Whether the match flags below are kept at all; decided by the kind and strictness.
     bool hasBuildSideMatchFlags() const { return rules.flag_matched_build_rows; }
@@ -274,13 +275,13 @@ private:
     /// the shape the spill writes it out in.
     void storeBlock(BuildBlockEntry & entry, size_t index, BuildBlock build_block, bool compressed, size_t uncompressed_bytes)
         TSA_REQUIRES(mutex);
-    /// Takes every block that is still in memory out of it, in index order, for the temporary file of
-    /// `stream_index`. What it returns has to be written before that stream writes anything else.
-    std::vector<BuildBlockPtr> takeInMemoryBlocksLocked(size_t stream_index) TSA_REQUIRES(mutex);
-    /// Writes blocks to the temporary file of `stream_index`, opening it on the first ones. Called
+    /// Takes every block that is still in memory out of it, in index order, for the temporary file at
+    /// `sink_index`. What it returns has to be written before anything else goes to that file.
+    std::vector<BuildBlockPtr> takeInMemoryBlocksLocked(size_t sink_index) TSA_REQUIRES(mutex);
+    /// Writes blocks to the temporary file at `sink_index`, opening it on the first ones. Called
     /// without the store mutex: serializing and compressing a block is what spilling costs, and a file
     /// has one writer only, so this is where the build streams stop queueing behind each other.
-    void writeSpilledBlocks(size_t stream_index, std::vector<BuildBlockPtr> blocks_to_write);
+    void writeSpilledBlocks(size_t sink_index, std::vector<BuildBlockPtr> blocks_to_write);
 
     /// The entry of block `index`. Needs no lock: the store is read-only by the time it is called.
     const BuildBlockEntry & getBlockEntry(size_t index) const;
@@ -300,10 +301,9 @@ private:
     mutable std::mutex mutex;
     std::vector<BuildBlockEntry> blocks TSA_GUARDED_BY(mutex);
     Block build_side_totals TSA_GUARDED_BY(mutex);
-    /// One temporary file per build stream, opened on that stream's first spilled block. Not guarded:
-    /// a stream is the only writer of its own file - the bulk flush included, since the memory spill
-    /// scheduler asks a processor to spill from that processor's own execution slot - and nothing reads
-    /// them before `finish` has moved them into the published state.
+    /// Slot 0 is reserved for `spill`; build stream `i` writes to slot `i + 1`. The first spill drains
+    /// all resident blocks under the mutex, so later calls have nothing to write to slot 0. Each build
+    /// stream has one writer, and `finish` runs only after all writers have finished.
     std::vector<TemporaryBlockStreamHolderPtr> spill_sinks;
 
     /// Written once by `finish`, under the mutex and before the release store to `finished`.

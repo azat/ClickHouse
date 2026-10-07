@@ -31,10 +31,12 @@ public:
     Status prepare() override;
     void work() override;
 
-    ProcessorMemoryStats getMemoryStats() override;
-    bool spillOnSize(size_t bytes) override;
+    ISpillable * getSpillable() override { return data.get(); }
 
 private:
+    Status prepareImpl();
+    bool spillable_registered = false;
+
     /// Counts this stream out of the build phase, closing the store when it is the last one.
     void finishBuild();
 
