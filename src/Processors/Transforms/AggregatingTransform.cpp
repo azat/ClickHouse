@@ -1232,7 +1232,7 @@ AggregatingTransform::AggregatingTransform(
     /// staged, so the merge-time drains find empty backlogs and do nothing.
     if (many_data->adaptive_session && params->aggregator.getParams().enable_adaptive_aggregator)
         adaptive_context = std::make_unique<AdaptiveAggregationProducer>(many_data->adaptive_session);
-    registerProcessor();
+    spillable.registerProcessor();
     spillable_registered = true;
 }
 
@@ -1258,7 +1258,7 @@ IProcessor::Status AggregatingTransform::prepare()
 {
     const auto status = prepareImpl();
     if (status == Status::Finished && std::exchange(spillable_registered, false))
-        unregisterProcessor();
+        spillable.unregisterProcessor();
     return status;
 }
 

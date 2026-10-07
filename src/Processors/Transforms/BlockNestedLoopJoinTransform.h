@@ -31,7 +31,7 @@ public:
     Status prepare() override;
     void work() override;
 
-    ISpillable * getSpillable() override { return data.get(); }
+    ISpillable * getSpillable() override { return data->getSpillable(); }
 
 private:
     Status prepareImpl();

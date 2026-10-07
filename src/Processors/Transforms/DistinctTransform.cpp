@@ -49,7 +49,7 @@ DistinctTransform::DistinctTransform(
         abandon_controller.emplace();
     if (allow_spilling)
     {
-        registerProcessor();
+        spillable.registerProcessor();
         spillable_registered = true;
     }
 }
@@ -58,7 +58,7 @@ IProcessor::Status DistinctTransform::prepare()
 {
     const auto status = ISimpleTransform::prepare();
     if (status == Status::Finished && std::exchange(spillable_registered, false))
-        unregisterProcessor();
+        spillable.unregisterProcessor();
     return status;
 }
 

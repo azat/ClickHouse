@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Processors/ISimpleTransform.h>
-#include <Processors/ISpillable.h>
+#include <Processors/SpillableAdapter.h>
 #include <Processors/Transforms/DistinctSetFilter.h>
 #include <QueryPipeline/SizeLimits.h>
 
@@ -48,7 +48,7 @@ private:
 /// The streaming hash-based `DISTINCT`: emits the first occurrence of each key as soon as it is seen. The
 /// deduplication logic itself lives in `DistinctSetFilter` (shared with `ExternalDistinctTransform`, which
 /// additionally spills to disk under memory pressure).
-class DistinctTransform final : public ISimpleTransform, public ISpillable
+class DistinctTransform final : public ISimpleTransform
 {
 public:
     /// `allow_abandoning_` permits giving up on mostly-unique input (see `DeduplicationAbandonController`):
@@ -73,14 +73,15 @@ public:
     String getName() const override { return "DistinctTransform"; }
 
     Status prepare() override;
-    ISpillable * getSpillable() override { return allow_spilling ? this : nullptr; }
-    ProcessorMemoryStats getMemoryStats() const override;
-    size_t spill(size_t at_least_bytes) override;
+    ISpillable * getSpillable() override { return allow_spilling ? &spillable : nullptr; }
+    ProcessorMemoryStats getMemoryStats() const;
+    size_t spill(size_t at_least_bytes);
 
 protected:
     void transform(Chunk & chunk) override;
 
 private:
+    SpillableAdapter<DistinctTransform> spillable{*this};
     bool spillable_registered = false;
     /// An absent filter means subsequent chunks pass through without deduplication.
     std::optional<DistinctSetFilter> distinct_set;

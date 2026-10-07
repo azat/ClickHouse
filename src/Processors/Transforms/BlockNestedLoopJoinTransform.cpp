@@ -34,7 +34,7 @@ BlockNestedLoopBuildTransform::BlockNestedLoopBuildTransform(
     , finish_counter(std::move(finish_counter_))
     , stream_index(stream_index_)
 {
-    data->registerProcessor();
+    getSpillable()->registerProcessor();
     spillable_registered = true;
 }
 
@@ -50,7 +50,7 @@ IProcessor::Status BlockNestedLoopBuildTransform::prepare()
 {
     const auto status = prepareImpl();
     if (status == Status::Finished && std::exchange(spillable_registered, false))
-        data->unregisterProcessor();
+        getSpillable()->unregisterProcessor();
     return status;
 }
 

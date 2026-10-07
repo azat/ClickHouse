@@ -2,7 +2,7 @@
 
 #include <Interpreters/TemporaryDataOnDisk.h>
 #include <Processors/IProcessor.h>
-#include <Processors/ISpillable.h>
+#include <Processors/SpillableAdapter.h>
 #include <Processors/Transforms/DistinctSetFilter.h>
 #include <Processors/Transforms/DistinctSpillLayout.h>
 #include <Processors/Transforms/SortingTransform.h>
@@ -41,7 +41,7 @@ class DistinctSortedTransform;
 /// Otherwise, rows follow the spill comparison order, which is fingerprint order for generic keys.
 /// Scheduler requests synchronously write unconnected runs and release their memory before returning;
 /// their readers are attached at the next pipeline update.
-class ExternalDistinctTransform final : public IProcessor, public ISpillable
+class ExternalDistinctTransform final : public IProcessor
 {
 public:
     ExternalDistinctTransform(
@@ -64,13 +64,14 @@ public:
     void work() override;
     PipelineUpdate updatePipeline() override;
 
-    ISpillable * getSpillable() override { return this; }
-    ProcessorMemoryStats getMemoryStats() const override;
-    size_t spill(size_t at_least_bytes) override;
-    const TemporaryDataOnDiskScope * getSpillScope() const override { return tmp_data.get(); }
+    ISpillable * getSpillable() override { return &spillable; }
+    ProcessorMemoryStats getMemoryStats() const;
+    size_t spill(size_t at_least_bytes);
+    const TemporaryDataOnDiskScope * getSpillScope() const { return tmp_data.get(); }
 
 private:
     Status prepareImpl();
+    SpillableAdapter<ExternalDistinctTransform> spillable{*this};
     bool spillable_registered = false;
 
     struct Hashing

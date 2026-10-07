@@ -38,7 +38,7 @@
 #include <Interpreters/ProcessList.h>
 #include <Processors/Executors/Runtime/V1/PipelineExecutor.h>
 #include <Processors/IProcessor.h>
-#include <Processors/ISpillable.h>
+#include <Processors/SpillableAdapter.h>
 #include <QueryPipeline/ReadProgressCallback.h>
 
 #include <Parsers/parseQuery.h>
@@ -2652,13 +2652,15 @@ TEST(SchedulerWorkloadResourceManager, MemoryReservationSpillOnSoftLimit)
 
 TEST(SchedulerWorkloadResourceManager, MemoryReservationRetiresUnclaimedSpill)
 {
-    struct SpillableState final : ISpillable
+    struct SpillableState
     {
-        ProcessorMemoryStats getMemoryStats() const override
+        SpillableAdapter<SpillableState> spillable{*this};
+
+        ProcessorMemoryStats getMemoryStats() const
         {
             return {.spillable_memory_bytes = 100};
         }
-        size_t spill(size_t) override
+        size_t spill(size_t)
         {
             ADD_FAILURE() << "The request arrives during the final work step and must remain unclaimed";
             return 0;
@@ -2674,7 +2676,7 @@ TEST(SchedulerWorkloadResourceManager, MemoryReservationRetiresUnclaimedSpill)
 
         explicit FinishWithPendingSpill(std::shared_ptr<SpillableState> state_) : state(std::move(state_))
         {
-            state->registerProcessor();
+            state->spillable.registerProcessor();
         }
 
         String getName() const override
@@ -2683,14 +2685,14 @@ TEST(SchedulerWorkloadResourceManager, MemoryReservationRetiresUnclaimedSpill)
         }
         ISpillable * getSpillable() override
         {
-            return state.get();
+            return &state->spillable;
         }
         Status prepare() override
         {
             if (!finished)
                 return Status::Ready;
             if (std::exchange(spillable_registered, false))
-                state->unregisterProcessor();
+                state->spillable.unregisterProcessor();
             return Status::Finished;
         }
         void work() override

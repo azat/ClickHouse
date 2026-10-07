@@ -528,7 +528,7 @@ TEST(BlockNestedLoopJoinData, SpillingOnDemandMovesTheStoredBlocksOut)
     BlockNestedLoopBuildTransform second(makeHeader(), data, finish_counter, 1);
     auto * spillable = first.getSpillable();
     ASSERT_EQ(spillable, second.getSpillable());
-    ASSERT_EQ(spillable, data.get());
+    ASSERT_EQ(spillable, data->getSpillable());
 
     /// Nothing spills on its own without a threshold, ...
     ASSERT_TRUE(data->addBlock(makeBlock({1, 2}), 2, 0));

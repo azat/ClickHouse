@@ -3,7 +3,7 @@
 #include <Columns/IColumn.h>
 #include <Core/Block.h>
 #include <Core/Joins.h>
-#include <Processors/ISpillable.h>
+#include <Processors/SpillableAdapter.h>
 #include <QueryPipeline/SizeLimits.h>
 
 #include <atomic>
@@ -120,7 +120,7 @@ struct BlockNestedLoopStoreSettings
 /// row count is kept either way, so the global row numbering - and with it the indexing of the
 /// match flags - does not change when a block moves out of memory. Blocks are read back through a
 /// `BuildSideBlockReader`.
-class BlockNestedLoopJoinData : public ISpillable
+class BlockNestedLoopJoinData
 {
 public:
     BlockNestedLoopJoinData(
@@ -130,7 +130,7 @@ public:
         const SizeLimits & size_limits_,
         BlockNestedLoopStoreSettings store_settings_ = {},
         size_t num_build_streams_ = 1);
-    ~BlockNestedLoopJoinData() override;
+    ~BlockNestedLoopJoinData();
 
     /// Appends one build block; `num_rows` is authoritative, because a block with no columns still
     /// has rows. Thread-safe. Returns false when the size limits are exceeded under
@@ -185,10 +185,11 @@ public:
     size_t getInMemoryBytes() const { return in_memory_bytes.load(std::memory_order_relaxed); }
     size_t getMaxInMemoryBlockBytes() const { return max_in_memory_block_bytes.load(std::memory_order_relaxed); }
     size_t getNumSpilledBlocks() const { return num_spilled_blocks.load(std::memory_order_relaxed); }
-    ProcessorMemoryStats getMemoryStats() const override;
+    ISpillable * getSpillable() { return &spillable; }
+    ProcessorMemoryStats getMemoryStats() const;
     /// Streams every resident block to the scheduler's own temporary file and keeps the build side
     /// streaming from then on. Returns the bytes released, even if fewer than requested. Thread-safe.
-    size_t spill(size_t at_least_bytes) override;
+    size_t spill(size_t at_least_bytes);
 
     /// Whether the match flags below are kept at all; decided by the kind and strictness.
     bool hasBuildSideMatchFlags() const { return rules.flag_matched_build_rows; }
@@ -222,6 +223,8 @@ public:
 
 private:
     friend class BuildSideBlockReader;
+
+    SpillableAdapter<BlockNestedLoopJoinData> spillable{*this};
 
     /// One stored build block: in memory, possibly compressed, or in the temporary file of
     /// `sink_index`, at `spill_ordinal` in it. `num_rows` is known either way.

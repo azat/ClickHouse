@@ -9,7 +9,7 @@
 #include <Interpreters/IJoin.h>
 #include <Interpreters/TableJoin.h>
 #include <Interpreters/TemporaryDataOnDisk.h>
-#include <Processors/ISpillable.h>
+#include <Processors/SpillableAdapter.h>
 #include <Common/SharedMutex.h>
 
 
@@ -44,7 +44,7 @@ class ConcurrentHashJoin;
 /// Because hasDelayedBlocks returns true, the read-in-order-through-join optimisation
 /// in optimizeReadInOrder.cpp will NOT propagate through SpillingHashJoin (same as
 /// GraceHashJoin), since spilling may reorder rows.
-class SpillingHashJoin final : public IJoin, public ISpillable
+class SpillingHashJoin final : public IJoin
 {
 public:
     /// Single-thread mode: wraps a HashJoin.
@@ -91,11 +91,11 @@ public:
 
     StepAnalysisReport getAnalysisReport() const override;
 
-    ISpillable * getSpillable() override { return this; }
+    ISpillable * getSpillable() override { return &spillable; }
     /// While collecting: the whole right side, spilled by switching to the grace join.
     /// After the switch: the grace join and unconverted concurrent slots. Nothing once the build ended in memory.
-    ProcessorMemoryStats getMemoryStats() const override;
-    size_t spill(size_t at_least_bytes) override;
+    ProcessorMemoryStats getMemoryStats() const;
+    size_t spill(size_t at_least_bytes);
 
     bool supportParallelJoin() const override { return concurrent_join != nullptr; }
     bool supportParallelNonJoinedBlocksProcessing() const override;
@@ -131,6 +131,8 @@ public:
     void setEnableLazyColumnsIndexing(bool value) override;
 
 private:
+    SpillableAdapter<SpillingHashJoin> spillable{*this};
+
     enum class State
     {
         COLLECTING, // Right-side blocks are being collected in HashJoin / ConcurrentHashJoin, no spilling yet.

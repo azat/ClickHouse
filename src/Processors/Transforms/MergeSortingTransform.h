@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Processors/ISpillable.h>
+#include <Processors/SpillableAdapter.h>
 #include <Processors/Transforms/SortingTransform.h>
 #include <Common/Logger.h>
 #include <Core/SortDescription.h>
@@ -18,7 +18,7 @@ using VolumePtr = std::shared_ptr<IVolume>;
 
 /// Takes sorted separate chunks of data. Sorts them.
 /// Returns stream with globally sorted data.
-class MergeSortingTransform final : public SortingTransform, public ISpillable
+class MergeSortingTransform final : public SortingTransform
 {
 public:
     /// limit - if not 0, allowed to return just first 'limit' rows in sorted order.
@@ -40,10 +40,10 @@ public:
     String getName() const override { return "MergeSortingTransform"; }
 
     Status prepare() override;
-    ISpillable * getSpillable() override { return this; }
-    ProcessorMemoryStats getMemoryStats() const override;
-    size_t spill(size_t at_least_bytes) override;
-    const TemporaryDataOnDiskScope * getSpillScope() const override { return tmp_data.get(); }
+    ISpillable * getSpillable() override { return &spillable; }
+    ProcessorMemoryStats getMemoryStats() const;
+    size_t spill(size_t at_least_bytes);
+    const TemporaryDataOnDiskScope * getSpillScope() const { return tmp_data.get(); }
 
 protected:
     void consume(Chunk chunk) override;
@@ -53,6 +53,7 @@ protected:
     PipelineUpdate updatePipeline() override;
 
 private:
+    SpillableAdapter<MergeSortingTransform> spillable{*this};
     bool spillable_registered = false;
     size_t max_bytes_before_remerge;
     double remerge_lowered_memory_bytes_ratio;

@@ -16,10 +16,11 @@ class TemporaryDataOnDiskScope;
 /// Memory spilling interface of a processor.
 /// Aggregation, join, sorting, and `DISTINCT` processors can be spillable.
 ///
-/// Kept separate from IProcessor so that the spilling API can evolve without
+/// Kept separate from `IProcessor` so that the spilling API can evolve without
 /// recompiling every translation unit that uses processors.
 ///
-/// If processes shares spilling/memory state, it should share ISpillable object.
+/// Processors or shared state own an implementation, exposed through `getSpillable`.
+/// Processors sharing spilling state must return the same `ISpillable` object.
 class ISpillable : private boost::noncopyable
 {
 public:
