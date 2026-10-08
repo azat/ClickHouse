@@ -2,9 +2,11 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <future>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <utility>
 #include <gtest/gtest.h>
 
@@ -12,9 +14,13 @@
 #include <Core/Settings.h>
 
 #include <Common/EventRateMeter.h>
+#include <Common/CurrentThread.h>
+#include <Common/FailPoint.h>
 #include <Common/Stopwatch.h>
 #include <Common/setThreadName.h>
 #include <Common/ThreadPool.h>
+#include <Common/ThreadStatus.h>
+#include <Common/WakeupFd.h>
 #include <Common/Scheduler/CPUSlotsAllocation.h>
 #include <Common/Scheduler/CPULeaseAllocation.h>
 #include <Common/Scheduler/ISpaceSharedNode.h>
@@ -2750,6 +2756,141 @@ TEST(SchedulerWorkloadResourceManager, MemoryReservationRetiresUnclaimedSpill)
         EXPECT_EQ(reservation->queue.reclaimable, 0);
         EXPECT_EQ(reservation->queue.reclaiming, 0);
     });
+}
+
+TEST(SchedulerWorkloadResourceManager, MemoryReservationSpillsIdleProcessors)
+{
+    struct AwaitSpills final : IProcessor
+    {
+        WakeupFd completed;
+        std::mutex mutex;
+        std::condition_variable cv;
+        size_t idle = 0;
+        std::atomic<size_t> spills = 0;
+        bool finished = false;
+        bool pause_before_poll = false;
+
+        String getName() const override { return "AwaitSpills"; }
+        Status prepare() override { return finished ? Status::Finished : Status::Async; }
+        int schedule() override { return completed.fd(); }
+        void work() override
+        {
+            completed.drain();
+            EXPECT_EQ(spills.load(), 2);
+            finished = true;
+        }
+    };
+
+    struct IdleSpiller final : IProcessor
+    {
+        AwaitSpills & gate;
+        const Status idle_status;
+        SpillableAdapter<IdleSpiller> spillable{*this};
+        ISpillable * const component = &spillable;
+        bool worked = false;
+        bool announced_idle = false;
+        bool spilled = false;
+
+        IdleSpiller(AwaitSpills & gate_, Status idle_status_) : gate(gate_), idle_status(idle_status_) {}
+        String getName() const override { return "IdleSpiller"; }
+        std::span<ISpillable * const> getSpillables() override { return {&component, 1}; }
+        ProcessorMemoryStats getMemoryStats() const { return {.spillable_memory_bytes = spilled ? 0 : 100}; }
+        Status prepare() override
+        {
+            if (!worked)
+                return Status::Ready;
+            if (spilled)
+                return Status::Finished;
+            if (!std::exchange(announced_idle, true))
+            {
+                std::lock_guard lock(gate.mutex);
+                ++gate.idle;
+                if (gate.idle == 2 && gate.pause_before_poll)
+                    FailPointInjection::enableFailPoint("polling_queue_before_try_poll");
+                gate.cv.notify_all();
+            }
+            return idle_status;
+        }
+        void work() override
+        {
+            EXPECT_FALSE(worked) << "A spill-only wakeup must not execute normal work";
+            worked = true;
+        }
+        size_t spill(size_t bytes)
+        {
+            EXPECT_TRUE(announced_idle);
+            EXPECT_FALSE(spilled);
+            EXPECT_EQ(bytes, 100);
+            spilled = true;
+            if (++gate.spills == 2)
+                gate.completed.notify();
+            return 100;
+        }
+    };
+
+    ResourceTest t;
+    t.query("CREATE RESOURCE memory (MEMORY RESERVATION)");
+    t.query("CREATE WORKLOAD all SETTINGS max_memory = 1000");
+    auto classifier = t.manager->acquire("all");
+    for (size_t threads : {1, 2})
+    {
+        std::optional<DB::ThreadStatus> thread_status;
+        if (!CurrentThread::isInitialized())
+            thread_status.emplace();
+        auto status = std::make_shared<QueryStatus>(
+            Context::getGlobalContextInstance(), "", 0, ClientInfo{}, std::nullopt, QueryPriorities::Handle{}, nullptr,
+            std::make_unique<MemoryReservation>(classifier->get("memory"), "idle_spillers", 300, 1),
+            std::make_shared<ThreadGroup>(Context::getGlobalContextInstance(), 0),
+            IAST::QueryKind::Select, Settings{}, 0, false);
+        auto * reservation = status->getMemoryReservation();
+        auto gate = std::make_shared<AwaitSpills>();
+        gate->pause_before_poll = threads == 1 && USE_LIBFIU;
+        auto input_waiter = std::make_shared<IdleSpiller>(*gate, IProcessor::Status::NeedData);
+        auto output_waiter = std::make_shared<IdleSpiller>(*gate, IProcessor::Status::PortFull);
+        Runtime::V1::PipelineExecutor executor(std::make_shared<Processors>(Processors{input_waiter, output_waiter, gate}), status);
+        auto run = std::async(std::launch::async, [&] { executor.execute(threads, false); });
+        std::future<void> paused;
+        SCOPE_EXIT({
+            if (run.valid())
+            {
+                executor.cancel(IProcessor::CancelReason::Exception);
+                if (gate->pause_before_poll)
+                    FailPointInjection::disableFailPoint("polling_queue_before_try_poll");
+                run.wait();
+            }
+            if (gate->pause_before_poll)
+                FailPointInjection::disableFailPoint("polling_queue_before_try_poll");
+        });
+
+        {
+            std::unique_lock lock(gate->mutex);
+            ASSERT_TRUE(gate->cv.wait_for(lock, std::chrono::seconds(10), [&] { return gate->idle == 2; }));
+        }
+        /// Deliver the request after the task mutex is released, so the nonblocking poll consumes its wakeup.
+        if (gate->pause_before_poll)
+        {
+            paused = std::async(std::launch::async, [] { FailPointInjection::waitForPause("polling_queue_before_try_poll"); });
+            ASSERT_EQ(paused.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+            paused.get();
+        }
+        t.executeFromScheduler("memory", [&]
+        {
+            EXPECT_EQ(reservation->queue.requestSpill(*reservation, 200), 200);
+        });
+        if (gate->pause_before_poll)
+            FailPointInjection::disableFailPoint("polling_queue_before_try_poll");
+        ASSERT_EQ(run.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+        ASSERT_NO_THROW(run.get());
+        EXPECT_EQ(input_waiter->getNumExecutedJobs(), 1);
+        EXPECT_EQ(output_waiter->getNumExecutedJobs(), 1);
+        t.executeFromScheduler("memory", [&]
+        {
+            EXPECT_EQ(reservation->queue.reclaimable, 0);
+            EXPECT_EQ(reservation->queue.reclaiming, 0);
+        });
+        /// A finalized pipeline can release its reservation while the executor object still exists.
+        status->releaseMemoryReservation();
+    }
 }
 
 TEST(SchedulerWorkloadResourceManager, MemoryReservationSpillRatioSetting)

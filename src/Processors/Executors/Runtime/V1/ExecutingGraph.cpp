@@ -92,6 +92,7 @@ void ExecutingGraph::detachSpillables()
     for (auto & node : nodes)
         if (!node.registered_spillables.empty())
             unregisterSpillables(node);
+    spillable_owners.clear();
     memory_reservation = nullptr;
     memory_spill_scheduler.reset();
 }
@@ -110,20 +111,82 @@ void ExecutingGraph::registerSpillables(Node & node)
         else
             memory_spill_scheduler->registerSpillable(spillable);
         node.registered_spillables.push_back(spillable);
+        if (memory_reservation)
+        {
+            std::lock_guard lock(spillables_mutex);
+            spillable_owners[spillable].push_back(&node);
+        }
     }
 }
 
 void ExecutingGraph::unregisterSpillables(Node & node)
 {
+    std::lock_guard lock(spillables_mutex);
     while (!node.registered_spillables.empty())
     {
         auto * spillable = node.registered_spillables.back();
         node.registered_spillables.pop_back();
         if (memory_reservation)
-            memory_reservation->unregisterSpillable(spillable);
+            memory_reservation->unregisterSpillable(spillable, node.processor());
         else
             memory_spill_scheduler->unregisterSpillable(spillable);
+
+        auto it = spillable_owners.find(spillable);
+        if (it == spillable_owners.end())
+            continue;
+        std::erase(it->second, &node);
+        if (it->second.empty())
+            spillable_owners.erase(it);
     }
+}
+
+bool ExecutingGraph::scheduleSpill(Node & node, ISpillable * spillable, Queue & queue)
+{
+    /// Caller owns `status_mutex`. The owning status excludes both `prepare` and `work`.
+    if (!memory_reservation || node.status != ExecStatus::Idle
+        || !memory_reservation->scheduleSpill(spillable, node.processor()))
+        return false;
+    node.spill_target = spillable;
+    node.status = ExecStatus::Executing;
+    queue.push(node.processor());
+    return true;
+}
+
+void ExecutingGraph::scheduleSpills(Queue & queue)
+{
+    chassert(memory_reservation);
+
+    std::shared_lock nodes_lock(nodes_mutex);
+    struct Candidate
+    {
+        ISpillable * spillable;
+        Int64 bytes;
+        std::vector<Node *> owners;
+    };
+    std::vector<Candidate> candidates;
+    {
+        std::lock_guard lock(spillables_mutex);
+        for (const auto & [spillable, owners] : spillable_owners)
+            if (auto bytes = memory_reservation->getSpillCandidateBytes(spillable); bytes > 0)
+                candidates.push_back({spillable, bytes, owners});
+    }
+    std::ranges::sort(candidates, std::greater{}, &Candidate::bytes);
+    for (const auto & candidate : candidates)
+    {
+        for (auto * node : candidate.owners)
+        {
+            std::lock_guard lock(node->status_mutex);
+            if (scheduleSpill(*node, candidate.spillable, queue))
+                break;
+        }
+    }
+}
+
+ISpillable * ExecutingGraph::getSpillTarget(const IProcessor & processor)
+{
+    std::shared_lock lock(nodes_mutex);
+    /// The caller already owns this node's execution slot.
+    return processors_map.at(&processor)->spill_target;
 }
 
 ExecutingGraph::Node & ExecutingGraph::addNode(Processors::iterator processor_iter)
@@ -483,6 +546,7 @@ ExecutingGraph::UpdateNodeStatus ExecutingGraph::updateNode(IProcessor & initial
                 std::unique_lock<std::mutex> lock(std::move(*stack_top_lock));
 
                 auto & processor = *node.processor();
+                node.spill_target = nullptr;
                 const auto last_status = node.last_processor_status;
                 IProcessor::Status status = processor.prepare(node.updated_input_ports, node.updated_output_ports);
                 node.last_processor_status = status;
@@ -518,6 +582,10 @@ ExecutingGraph::UpdateNodeStatus ExecutingGraph::updateNode(IProcessor & initial
                     case IProcessor::Status::PortFull:
                     {
                         node.status = ExecutingGraph::ExecStatus::Idle;
+                        /// A request may have arrived while this node was owned by normal execution.
+                        for (auto * spillable : processor.getSpillables())
+                            if (scheduleSpill(node, spillable, queue))
+                                break;
                         break;
                     }
                     case IProcessor::Status::Finished:

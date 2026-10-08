@@ -164,6 +164,8 @@ PipelineExecutor::~PipelineExecutor()
 
 void PipelineExecutor::detachSpillables()
 {
+    if (auto * reservation = process_list_element ? process_list_element->getMemoryReservation() : nullptr)
+        reservation->removeSpillListener(tasks);
     graph->detachSpillables();
 }
 
@@ -370,13 +372,21 @@ void PipelineExecutor::executeStepImpl(size_t thread_num, WorkloadResources && r
 
     while (!tasks.isFinished() && !yield)
     {
-        /// First, find any processor to execute.
-        while (!tasks.isFinished() && !context.hasTask())
+        if (resources.reservation && tasks.takeSpillNotification())
+        {
+            Queue spill_queue;
+            graph->scheduleSpills(spill_queue);
+            tasks.pushSpillTasks(spill_queue, thread_num);
+        }
+
+        /// A locally assigned task bypasses the queue, but still checks spill notifications above.
+        if (!tasks.isFinished() && !context.hasTask())
             tasks.tryGetTask(context);
 
-        while (!tasks.isFinished() && context.hasTask() && !yield)
+        if (!tasks.isFinished() && context.hasTask())
         {
-            if (!context.executeTask())
+            auto * spill_target = resources.reservation ? graph->getSpillTarget(*context.getTask()) : nullptr;
+            if (!context.executeTask(spill_target))
                 cancel(IProcessor::CancelReason::Exception);
 
             if (tasks.isFinished())
@@ -647,6 +657,8 @@ void PipelineExecutor::initializeExecution(size_t num_threads, bool concurrency_
     tasks.init(num_threads, 1, cpu_slots, profile_processors, trace_processors,
         read_progress_callback.get(), step_profiler.get(), process_list_element.get());
     const size_t initial_parallel = tasks.fill(queue, async_queue);
+    if (auto * reservation = process_list_element ? process_list_element->getMemoryReservation() : nullptr)
+        reservation->addSpillListener(tasks);
 
     /// Initial queued parallelism never routes through `pushTasks`, so size setMax here to
     /// cover it. For multi-source pipelines (e.g. UNION ALL of N subqueries) this prevents

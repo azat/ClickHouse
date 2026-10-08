@@ -7,6 +7,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <unordered_set>
 #include <base/defines.h>
 
 class MemoryTracker;
@@ -16,6 +17,14 @@ namespace DB
 
 class ISpillable;
 class IProcessor;
+
+/// Notification only: implementations wake execution without calling operator code.
+class ISpillRequestListener
+{
+public:
+    virtual ~ISpillRequestListener() = default;
+    virtual void notifySpillRequested() = 0;
+};
 
 /// `MemoryReservation` bridges a running query and the memory scheduler: the scheduler caps each
 /// workload's memory while the query's `MemoryTracker` stays the source of truth. It backs:
@@ -66,13 +75,20 @@ public:
 
     ResourceCost getTotalReclaimable();
     void registerSpillable(const ISpillable * spillable);
-    void unregisterSpillable(const ISpillable * spillable);
+    void unregisterSpillable(const ISpillable * spillable, const IProcessor * owner);
+    /// Published capacity available for an independently scheduled spill.
+    ResourceCost getSpillCandidateBytes(const ISpillable * spillable);
+    bool scheduleSpill(const ISpillable * spillable, const IProcessor * owner);
+
+    void addSpillListener(ISpillRequestListener & listener);
+    void removeSpillListener(ISpillRequestListener & listener);
     /// Reclaimable memory of the query's spillable processors, keyed by the object that owns the
     /// state so that processors sharing it are counted once. Sampling and publication are serialized.
     /// A spill completion defers reporting until `finishSpill` has synchronized the tracker.
     ResourceCost updateReclaimable(const ISpillable * spillable, bool report = true);
 
-    [[nodiscard]] ResourceCost takeSpillRequest(const ISpillable * spillable, ResourceCost spillable_bytes);
+    [[nodiscard]] ResourceCost takeSpillRequest(
+        const ISpillable * spillable, ResourceCost spillable_bytes, const IProcessor * scheduled_owner = nullptr);
     void finishSpill(const ISpillable * spillable, ResourceCost settled_bytes, const MemoryTracker * memory_tracker);
     /// Return a failed claim to pending demand; query cancellation will retire it after workers stop.
     void cancelSpill(const ISpillable * spillable, ResourceCost bytes);
@@ -80,6 +96,7 @@ public:
 private:
     void throwIfNeeded();
     void reportReclaimable(bool force = false, ResourceCost settled_bytes = 0);
+    void notifySpillRequested();
 
     // Unlinks this allocation from the scheduler and waits until removal completes.
     // Used both by the destructor and by the constructor when admission fails, so a throwing
@@ -108,6 +125,10 @@ private:
     /// Query threads release it before acquiring `reclaimable_report_mutex` or calling queue operations.
     std::mutex mutex;
     std::condition_variable cv;
+
+    /// Detachment waits for notifications to finish. Never acquired while holding `mutex`.
+    std::mutex spill_listeners_mutex;
+    std::unordered_set<ISpillRequestListener *> spill_listeners;
 
     std::exception_ptr kill_reason;
     std::exception_ptr fail_reason;

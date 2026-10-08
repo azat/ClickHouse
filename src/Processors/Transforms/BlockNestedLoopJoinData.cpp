@@ -387,6 +387,7 @@ ProcessorMemoryStats BlockNestedLoopJoinData::getMemoryStats() const
 /// would replace that with one pass per partition pair.
 size_t BlockNestedLoopJoinData::spill(size_t /*at_least_bytes*/)
 {
+    std::lock_guard spill_lock(scheduler_spill_mutex);
     std::vector<BuildBlockPtr> taken;
     size_t bytes_to_free = 0;
     {
@@ -447,6 +448,8 @@ const Block & BlockNestedLoopJoinData::getBuildSideTotals() const
 
 void BlockNestedLoopJoinData::finish()
 {
+    /// An idle build processor may spill even after crossing the producer finish barrier.
+    std::lock_guard spill_lock(scheduler_spill_mutex);
     std::lock_guard lock(mutex);
 
     if (finished.load(std::memory_order_relaxed))

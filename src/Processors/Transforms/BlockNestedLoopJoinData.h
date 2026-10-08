@@ -302,6 +302,8 @@ private:
     /// of it into `finished_state` and nothing reads it here afterwards, so the annotation covers
     /// every access there is and needs no exception anywhere.
     mutable std::mutex mutex;
+    /// Serializes scheduler writes to sink 0 with each other and with closing the store.
+    std::mutex scheduler_spill_mutex;
     std::vector<BuildBlockEntry> blocks TSA_GUARDED_BY(mutex);
     Block build_side_totals TSA_GUARDED_BY(mutex);
     /// Slot 0 is reserved for `spill`; build stream `i` writes to slot `i + 1`. The first spill drains

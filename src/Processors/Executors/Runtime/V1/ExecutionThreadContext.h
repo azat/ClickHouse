@@ -12,6 +12,7 @@ namespace DB
 {
 
 class IProcessor;
+class ISpillable;
 class ReadProgressCallback;
 class StepProfiler;
 class QueryStatus;
@@ -72,7 +73,7 @@ public:
     void setTask(IProcessor * task) { processor = task; }
     IProcessor * getTask() const { return processor; }
     IProcessor * popTask() { return std::exchange(processor, nullptr); }
-    bool executeTask();
+    bool executeTask(ISpillable * spill_target = nullptr);
 
     void setException(std::exception_ptr exception_);
     std::exception_ptr getException();
