@@ -83,7 +83,7 @@ static bool checkCanAddAdditionalInfoToException(const DB::Exception & exception
 }
 
 static void executeJob(IProcessor & processor, ReadProgressCallback * read_progress_callback,
-    QueryStatus * process_list_element)
+    QueryStatus * process_list_element, ISpillable * spill_target)
 {
     try
     {
@@ -91,10 +91,13 @@ static void executeJob(IProcessor & processor, ReadProgressCallback * read_progr
         MemoryReservation * reservation = !components.empty() && process_list_element ? process_list_element->getMemoryReservation() : nullptr;
         for (auto * spillable : components)
         {
+            if (spill_target && spillable != spill_target)
+                continue;
             if (reservation)
             {
                 const auto spillable_bytes = reservation->updateReclaimable(spillable);
-                if (auto spill_request = reservation->takeSpillRequest(spillable, spillable_bytes))
+                if (auto spill_request = reservation->takeSpillRequest(
+                        spillable, spillable_bytes, spill_target ? &processor : nullptr))
                 {
                     SCOPE_EXIT({ if (spill_request) reservation->cancelSpill(spillable, spill_request); });
                     auto * memory_tracker = process_list_element->getMemoryTracker();
@@ -123,13 +126,17 @@ static void executeJob(IProcessor & processor, ReadProgressCallback * read_progr
                 CurrentThread::getGroup()->memory_spill_scheduler->checkAndSpill(spillable);
         }
 
-        processor.work();
+        if (!spill_target)
+            processor.work();
 
         if (reservation)
         {
             for (auto * spillable : components)
                 reservation->updateReclaimable(spillable);
         }
+
+        if (spill_target)
+            return;
 
         /// Update read progress only for source nodes.
         bool is_source = processor.getInputs().empty();
@@ -164,7 +171,7 @@ static void executeJob(IProcessor & processor, ReadProgressCallback * read_progr
     }
 }
 
-bool ExecutionThreadContext::executeTask()
+bool ExecutionThreadContext::executeTask(ISpillable * spill_target)
 {
     std::unique_ptr<OpenTelemetry::SpanHolder> span;
 
@@ -204,8 +211,9 @@ bool ExecutionThreadContext::executeTask()
     bool success = true;
     try
     {
-        executeJob(*processor, read_progress_callback, process_list_element);
-        ++processor->num_executed_jobs;
+        executeJob(*processor, read_progress_callback, process_list_element, spill_target);
+        if (!spill_target)
+            ++processor->num_executed_jobs;
     }
     catch (...)
     {

@@ -44,6 +44,7 @@ private:
     {
         MemoryReservation * reservation = nullptr;
         size_t owners = 0;
+        const IProcessor * scheduled_owner = nullptr;
         Int64 reclaimable = 0;
         bool in_progress = false;
     };

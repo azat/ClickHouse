@@ -92,6 +92,8 @@ class ExecutingGraph
         /// Current status. It is accessed concurrently, using mutex.
         ExecStatus status = ExecStatus::Idle;
         std::mutex status_mutex;
+        /// Non-null for an independently scheduled spill; normal `work` must not run for this task.
+        ISpillable * spill_target = nullptr;
         std::vector<ISpillable *> registered_spillables;
 
         /// Last state for profiling.
@@ -128,6 +130,8 @@ public:
 
     /// Called after workers stop, including cancellation and exception paths.
     void detachSpillables();
+    void scheduleSpills(Queue & queue);
+    ISpillable * getSpillTarget(const IProcessor & processor);
 
     /// Traverse graph the first time to update all the childless nodes.
     void initializeExecution(Queue & queue, Queue & async_queue);
@@ -159,11 +163,15 @@ private:
     using ProcessorsMap = std::unordered_map<const IProcessor *, Node *>;
     ProcessorsMap processors_map;
 
+    /// Node lifetimes are protected by `nodes_mutex`; membership changes also take this mutex.
+    std::mutex spillables_mutex;
+    std::unordered_map<ISpillable *, std::vector<Node *>> spillable_owners;
     MemoryReservation * memory_reservation = nullptr;
     std::shared_ptr<MemorySpillScheduler> memory_spill_scheduler;
 
     void registerSpillables(Node & node);
     void unregisterSpillables(Node & node);
+    bool scheduleSpill(Node & node, ISpillable * spillable, Queue & queue);
 
     /// Append a processor to the graph's processors list, create its Node, assign a stable id,
     /// register it in the processors map. Does not create edges — that is done separately by addEdges.

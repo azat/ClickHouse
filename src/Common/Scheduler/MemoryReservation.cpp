@@ -224,12 +224,14 @@ void MemoryReservation::registerSpillable(const ISpillable * spillable)
     ++entry.owners;
 }
 
-void MemoryReservation::unregisterSpillable(const ISpillable * spillable)
+void MemoryReservation::unregisterSpillable(const ISpillable * spillable, const IProcessor * owner)
 {
     {
         std::lock_guard lock(mutex);
         auto & entry = spillable->spill_accounting;
         chassert(entry.reservation == this && entry.owners > 0);
+        if (entry.scheduled_owner == owner)
+            entry.scheduled_owner = nullptr;
         if (--entry.owners)
             return;
         chassert(!entry.in_progress);
@@ -237,6 +239,46 @@ void MemoryReservation::unregisterSpillable(const ISpillable * spillable)
         entry.reservation = nullptr;
     }
     reportReclaimable(/*force=*/ true);
+}
+
+ResourceCost MemoryReservation::getSpillCandidateBytes(const ISpillable * spillable)
+{
+    std::lock_guard lock(mutex);
+    const auto & entry = spillable->spill_accounting;
+    if (kill_reason || fail_reason || removed || enqueued_spill <= 0 || entry.in_progress || entry.scheduled_owner)
+        return 0;
+    return entry.reclaimable;
+}
+
+bool MemoryReservation::scheduleSpill(const ISpillable * spillable, const IProcessor * owner)
+{
+    std::lock_guard lock(mutex);
+    auto & entry = spillable->spill_accounting;
+    if (kill_reason || fail_reason || removed || enqueued_spill <= 0
+        || entry.reclaimable <= 0 || entry.in_progress || entry.scheduled_owner)
+        return false;
+    chassert(entry.reservation == this && entry.owners > 0 && owner);
+    entry.scheduled_owner = owner;
+    return true;
+}
+
+void MemoryReservation::addSpillListener(ISpillRequestListener & listener)
+{
+    std::lock_guard lock(spill_listeners_mutex);
+    spill_listeners.insert(&listener);
+}
+
+void MemoryReservation::removeSpillListener(ISpillRequestListener & listener)
+{
+    std::lock_guard lock(spill_listeners_mutex);
+    spill_listeners.erase(&listener);
+}
+
+void MemoryReservation::notifySpillRequested()
+{
+    std::lock_guard lock(spill_listeners_mutex);
+    for (auto * listener : spill_listeners)
+        listener->notifySpillRequested();
 }
 
 ResourceCost MemoryReservation::updateReclaimable(const ISpillable * spillable, bool report)
@@ -293,16 +335,20 @@ void MemoryReservation::reportReclaimable(bool force, ResourceCost settled_bytes
         queue.setReclaimable(*this, total);
 }
 
-ResourceCost MemoryReservation::takeSpillRequest(const ISpillable * spillable, ResourceCost spillable_bytes)
+ResourceCost MemoryReservation::takeSpillRequest(
+    const ISpillable * spillable, ResourceCost spillable_bytes, const IProcessor * scheduled_owner)
 {
+    std::lock_guard lock(mutex);
+    auto & entry = spillable->spill_accounting;
+    if (entry.scheduled_owner != scheduled_owner)
+        return 0;
+    entry.scheduled_owner = nullptr;
     if (spillable_bytes <= 0 || spillable_bytes < min_bytes_to_spill)
         return 0;
 
-    std::lock_guard lock(mutex);
     if (kill_reason || fail_reason || removed || enqueued_spill <= 0)
         return 0;
 
-    auto & entry = spillable->spill_accounting;
     if (entry.in_progress)
         return 0;
 
@@ -379,6 +425,7 @@ void MemoryReservation::spillAllocation(ResourceCost additional_bytes)
     }
     /// The last reclaimable estimate may have disappeared after the queue booked this request but before delivery.
     reportReclaimable();
+    notifySpillRequested();
 }
 
 void MemoryReservation::increaseApproved(const IncreaseRequest & increase)
