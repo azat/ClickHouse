@@ -2672,27 +2672,24 @@ TEST(SchedulerWorkloadResourceManager, MemoryReservationRetiresUnclaimedSpill)
         std::shared_ptr<SpillableState> state;
         std::function<void()> before_finish;
         bool finished = false;
-        bool spillable_registered = true;
+        ISpillable * const spillable = &state->spillable;
 
         explicit FinishWithPendingSpill(std::shared_ptr<SpillableState> state_) : state(std::move(state_))
         {
-            state->spillable.registerProcessor();
         }
 
         String getName() const override
         {
             return "FinishWithPendingSpill";
         }
-        ISpillable * getSpillable() override
+        std::span<ISpillable * const> getSpillables() override
         {
-            return &state->spillable;
+            return {&spillable, 1};
         }
         Status prepare() override
         {
             if (!finished)
                 return Status::Ready;
-            if (std::exchange(spillable_registered, false))
-                state->spillable.unregisterProcessor();
             return Status::Finished;
         }
         void work() override
@@ -2730,10 +2727,11 @@ TEST(SchedulerWorkloadResourceManager, MemoryReservationRetiresUnclaimedSpill)
     auto progress = std::make_unique<ReadProgressCallback>();
     progress->setProcessListElement(status);
     Runtime::V1::PipelineExecutor executor(processors, status);
+    Runtime::V1::PipelineExecutor other_executor(std::make_shared<Processors>(Processors{unprepared_processor}), status);
     executor.setReadProgressCallback(std::move(progress));
     executor.execute(1, false);
 
-    // Another owner has not even entered an executor yet, so its shared accounting must remain.
+    // Another registered owner has not been prepared yet, so its shared accounting must remain.
     ASSERT_EQ(processor->getNumExecutedJobs(), 1);
     t.executeFromScheduler("memory", [&]
     {
@@ -2741,7 +2739,6 @@ TEST(SchedulerWorkloadResourceManager, MemoryReservationRetiresUnclaimedSpill)
         EXPECT_EQ(reservation->queue.reclaiming, 50);
     });
 
-    Runtime::V1::PipelineExecutor other_executor(std::make_shared<Processors>(Processors{unprepared_processor}), status);
     other_executor.execute(1, false);
 
     // The last `Finished` retires the request while the reservation survives. Repeated calls are harmless.

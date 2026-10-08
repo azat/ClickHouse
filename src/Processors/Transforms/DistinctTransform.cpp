@@ -47,19 +47,6 @@ DistinctTransform::DistinctTransform(
 {
     if (allow_abandoning_)
         abandon_controller.emplace();
-    if (allow_spilling)
-    {
-        spillable.registerProcessor();
-        spillable_registered = true;
-    }
-}
-
-IProcessor::Status DistinctTransform::prepare()
-{
-    const auto status = ISimpleTransform::prepare();
-    if (status == Status::Finished && std::exchange(spillable_registered, false))
-        spillable.unregisterProcessor();
-    return status;
 }
 
 ProcessorMemoryStats DistinctTransform::getMemoryStats() const

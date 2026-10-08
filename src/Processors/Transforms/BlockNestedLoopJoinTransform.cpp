@@ -34,8 +34,6 @@ BlockNestedLoopBuildTransform::BlockNestedLoopBuildTransform(
     , finish_counter(std::move(finish_counter_))
     , stream_index(stream_index_)
 {
-    getSpillable()->registerProcessor();
-    spillable_registered = true;
 }
 
 InputPort * BlockNestedLoopBuildTransform::addTotalsPort()
@@ -47,14 +45,6 @@ InputPort * BlockNestedLoopBuildTransform::addTotalsPort()
 }
 
 IProcessor::Status BlockNestedLoopBuildTransform::prepare()
-{
-    const auto status = prepareImpl();
-    if (status == Status::Finished && std::exchange(spillable_registered, false))
-        getSpillable()->unregisterProcessor();
-    return status;
-}
-
-IProcessor::Status BlockNestedLoopBuildTransform::prepareImpl()
 {
     auto & output = outputs.front();
     auto & input = inputs.front();

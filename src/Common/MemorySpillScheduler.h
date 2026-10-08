@@ -19,13 +19,19 @@ public:
     ~MemorySpillScheduler() = default;
 
     size_t checkAndSpill(ISpillable * processor);
-    void remove(ISpillable * processor);
+    void registerSpillable(ISpillable * spillable);
+    void unregisterSpillable(ISpillable * spillable);
 
 private:
     bool enable = true;
     std::mutex mutex;
     // Only trace the spillable processors, this map is not expected to be too large.
-    std::unordered_map<ISpillable *, ProcessorMemoryStats> processor_stats;
+    struct Entry
+    {
+        ProcessorMemoryStats stats;
+        size_t owners = 0;
+    };
+    std::unordered_map<ISpillable *, Entry> processor_stats;
     ISpillable * top_processor = nullptr;
     Int64 max_reserved_memory_bytes = 0;
     std::atomic<Int64> hard_limit = -1;

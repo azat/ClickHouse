@@ -64,15 +64,14 @@ public:
     void work() override;
     PipelineUpdate updatePipeline() override;
 
-    ISpillable * getSpillable() override { return &spillable; }
+    std::span<ISpillable * const> getSpillables() override { return {&spillable_ptr, 1}; }
     ProcessorMemoryStats getMemoryStats() const;
     size_t spill(size_t at_least_bytes);
     const TemporaryDataOnDiskScope * getSpillScope() const { return tmp_data.get(); }
 
 private:
-    Status prepareImpl();
     SpillableAdapter<ExternalDistinctTransform> spillable{*this};
-    bool spillable_registered = false;
+    ISpillable * const spillable_ptr = &spillable;
 
     struct Hashing
     {

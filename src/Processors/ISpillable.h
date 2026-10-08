@@ -4,20 +4,22 @@
 
 #include <boost/core/noncopyable.hpp>
 
-#include <atomic>
 #include <cstddef>
+#include <mutex>
 
 namespace DB
 {
 
 struct MemoryReservation;
+class IProcessor;
 class TemporaryDataOnDiskScope;
 
 /// Memory spilling interface of a processor.
 /// Aggregation, join, sorting, and `DISTINCT` processors can be spillable.
 ///
-/// Processors or shared state own an implementation, exposed through `getSpillable`.
-/// Processors may share same spilling state
+/// Processors or shared state own an implementation, exposed through `getSpillables`.
+/// Processors may share the same spilling state. The executor excludes a spill from its selected
+/// owner's `prepare` and `work`; shared implementations synchronize against the other owners themselves.
 class ISpillable : private boost::noncopyable
 {
 public:
@@ -29,15 +31,6 @@ public:
     /// May return less than requested; the scheduler rechecks memory before requesting more.
     virtual size_t spill(size_t at_least_bytes) = 0;
 
-    /// Register each owning processor before execution starts.
-    void registerProcessor()
-    {
-        active_processors.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    /// Called once per processor on `Finished`; the last owner removes scheduler accounting.
-    void unregisterProcessor();
-
     /// The scope retains cumulative spill statistics after its temporary files are deleted.
     /// Multiple processors can share a scope; count it once when reporting a plan step.
     virtual const TemporaryDataOnDiskScope * getSpillScope() const { return nullptr; }
@@ -45,22 +38,19 @@ public:
 private:
     friend struct MemoryReservation;
 
-    /// Registered processors that have not reached `Finished`. Keep shared accounting until the last one finishes.
-    /// Registration precedes execution; processors sharing this object may finish concurrently.
-    std::atomic<size_t> active_processors{0};
-
     /// Accounting belongs to one query's `MemoryReservation`, whose mutex protects these fields.
     /// A shared spillable object must not be reused across reservations.
     struct SpillAccounting
     {
-        /// Bound when reporting under the reservation mutex. Read by the last owner after the
-        /// acquire decrement of `active_processors`, once all owners have stopped reporting.
         MemoryReservation * reservation = nullptr;
+        size_t owners = 0;
         Int64 reclaimable = 0;
         bool in_progress = false;
     };
 
     mutable SpillAccounting spill_accounting;
+    /// Order snapshots from different owners before publishing them to the reservation.
+    mutable std::mutex report_mutex;
 };
 
 }

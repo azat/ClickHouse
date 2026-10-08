@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <mutex>
 #include <optional>
 #include <Compression/CompressedReadBuffer.h>
@@ -70,6 +71,8 @@ struct AggregatingTransformParams
     Block getCustomHeader(bool final_) const { return params.getHeader(header, final_); }
 };
 
+class AdaptiveAggregationSpillable;
+
 struct ManyAggregatedData
 {
     /// Shared state of the kept-keys cutoff (`Aggregator::Params::shared_kept_keys_for_overflow_any`).
@@ -117,6 +120,7 @@ struct ManyAggregatedData
     /// Set when the adaptive aggregation is enabled for this aggregation (see
     /// `AdaptiveAggregationSession`); shared by all the participating transforms.
     AdaptiveAggregationSessionPtr adaptive_session;
+    std::shared_ptr<AdaptiveAggregationSpillable> adaptive_spillable;
 
     explicit ManyAggregatedData(size_t num_threads = 0) : variants(num_threads), num_producers(num_threads)
     {
@@ -180,7 +184,7 @@ public:
     void setRowsBeforeAggregationCounter(RowsBeforeStepCounterPtr counter) override { rows_before_aggregation.swap(counter); }
     void onCancel() noexcept override;
 
-    ISpillable * getSpillable() override { return &spillable; }
+    std::span<ISpillable * const> getSpillables() override { return {spillables.data(), adaptive_context ? 2uz : 1uz}; }
     ProcessorMemoryStats getMemoryStats() const;
     size_t spill(size_t at_least_bytes);
     const TemporaryDataOnDiskScope * getSpillScope() const { return params->aggregator.getSpillScope(); }
@@ -189,9 +193,8 @@ protected:
     void consume(Chunk chunk);
 
 private:
-    Status prepareImpl();
     SpillableAdapter<AggregatingTransform> spillable{*this};
-    bool spillable_registered = false;
+    std::array<ISpillable *, 2> spillables{&spillable, nullptr};
 
     size_t getGeneratingStepGroup() const;
 
@@ -231,6 +234,7 @@ private:
     /// on `many_data`. Held by pointer: the producer's definition stays out of this widely
     /// included header (see `AdaptiveAggregationImpl.h`).
     std::unique_ptr<AdaptiveAggregationProducer> adaptive_context;
+    std::shared_ptr<AdaptiveAggregationSpillable> adaptive_spillable;
     size_t max_threads = 1;
     size_t temporary_data_merge_threads = 1;
     bool should_produce_results_in_order_of_bucket_number = true;

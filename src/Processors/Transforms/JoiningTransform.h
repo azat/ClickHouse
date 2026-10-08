@@ -142,12 +142,11 @@ public:
     Status prepare() override;
     void work() override;
 
-    ISpillable * getSpillable() override { return join->getSpillable(); }
+    std::span<ISpillable * const> getSpillables() override { return {&spillable, spillable ? 1uz : 0uz}; }
 
 private:
-    Status prepareImpl();
-    bool spillable_registered = false;
     JoinPtr join;
+    ISpillable * const spillable = join->getSpillable();
     FinishCounterPtr finish_counter;
     Chunk chunk;
     bool stop_reading = false;

@@ -82,8 +82,6 @@ ExternalDistinctTransform::ExternalDistinctTransform(
     , preferred_block_bytes(preferred_block_bytes_)
     , preserve_input_order(preserve_input_order_)
 {
-    spillable.registerProcessor();
-    spillable_registered = true;
 }
 
 ExternalDistinctTransform::~ExternalDistinctTransform() = default;
@@ -187,14 +185,6 @@ void ExternalDistinctTransform::spillRun(PreparedRun run)
 }
 
 IProcessor::Status ExternalDistinctTransform::prepare()
-{
-    const auto status = prepareImpl();
-    if (status == Status::Finished && std::exchange(spillable_registered, false))
-        spillable.unregisterProcessor();
-    return status;
-}
-
-IProcessor::Status ExternalDistinctTransform::prepareImpl()
 {
     if (outputs.front().isFinished())
     {

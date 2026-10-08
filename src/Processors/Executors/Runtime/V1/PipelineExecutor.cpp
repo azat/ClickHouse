@@ -130,7 +130,8 @@ PipelineExecutor::PipelineExecutor(std::shared_ptr<Processors> processors, Query
     }
     try
     {
-        graph = std::make_unique<ExecutingGraph>(processors, profile_processors);
+        graph = std::make_unique<ExecutingGraph>(
+            processors, profile_processors, process_list_element ? process_list_element->getMemoryReservation() : nullptr);
     }
     catch (Exception & exception)
     {
@@ -156,8 +157,14 @@ PipelineExecutor::PipelineExecutor(std::shared_ptr<Processors> processors, Query
 
 PipelineExecutor::~PipelineExecutor()
 {
+    detachSpillables();
     if (process_list_element)
         process_list_element->removePipelineExecutor(this);
+}
+
+void PipelineExecutor::detachSpillables()
+{
+    graph->detachSpillables();
 }
 
 void PipelineExecutor::cancel(IProcessor::CancelReason reason)
@@ -188,6 +195,8 @@ void PipelineExecutor::finish()
 
 void PipelineExecutor::execute(size_t num_threads, bool concurrency_control)
 {
+    /// `QueryStatus` may release its reservation before this executor is destroyed.
+    SCOPE_EXIT({ detachSpillables(); });
     if (process_list_element && !process_list_element->checkTimeLimit())
         cancel(IProcessor::CancelReason::CancelledByTimeout);
 
@@ -216,6 +225,11 @@ void PipelineExecutor::execute(size_t num_threads, bool concurrency_control)
 
 bool PipelineExecutor::executeUntil(std::atomic_bool * yield_flag)
 {
+    const auto uncaught_exceptions = std::uncaught_exceptions();
+    SCOPE_EXIT({
+        if (tasks.isFinished() || std::uncaught_exceptions() > uncaught_exceptions)
+            detachSpillables();
+    });
     if (!is_execution_initialized)
     {
         initializeExecution(1, true);
@@ -630,7 +644,8 @@ void PipelineExecutor::initializeExecution(size_t num_threads, bool concurrency_
     /// Starting from 1 instead of 0 is to tackle the single thread scenario, where no upscale() will
     /// be invoked but actually 1 thread used.
 
-    tasks.init(num_threads, 1, cpu_slots, profile_processors, trace_processors, read_progress_callback.get(), step_profiler.get());
+    tasks.init(num_threads, 1, cpu_slots, profile_processors, trace_processors,
+        read_progress_callback.get(), step_profiler.get(), process_list_element.get());
     const size_t initial_parallel = tasks.fill(queue, async_queue);
 
     /// Initial queued parallelism never routes through `pushTasks`, so size setMax here to

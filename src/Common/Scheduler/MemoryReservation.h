@@ -15,6 +15,7 @@ namespace DB
 {
 
 class ISpillable;
+class IProcessor;
 
 /// `MemoryReservation` bridges a running query and the memory scheduler: the scheduler caps each
 /// workload's memory while the query's `MemoryTracker` stays the source of truth. It backs:
@@ -64,13 +65,17 @@ public:
     void syncWithMemoryTracker(const MemoryTracker * memory_tracker);
 
     ResourceCost getTotalReclaimable();
+    void registerSpillable(const ISpillable * spillable);
+    void unregisterSpillable(const ISpillable * spillable);
     /// Reclaimable memory of the query's spillable processors, keyed by the object that owns the
-    /// state so that processors sharing it are counted once.
-    void updateReclaimable(const ISpillable * spillable, ResourceCost total_bytes);
-    void removeReclaimable(const ISpillable * spillable);
+    /// state so that processors sharing it are counted once. Sampling and publication are serialized.
+    /// A spill completion defers reporting until `finishSpill` has synchronized the tracker.
+    ResourceCost updateReclaimable(const ISpillable * spillable, bool report = true);
 
     [[nodiscard]] ResourceCost takeSpillRequest(const ISpillable * spillable, ResourceCost spillable_bytes);
-    void finishSpill(const ISpillable * spillable, ResourceCost settled_bytes, ResourceCost new_spillable_memory_bytes, const MemoryTracker * memory_tracker);
+    void finishSpill(const ISpillable * spillable, ResourceCost settled_bytes, const MemoryTracker * memory_tracker);
+    /// Return a failed claim to pending demand; query cancellation will retire it after workers stop.
+    void cancelSpill(const ISpillable * spillable, ResourceCost bytes);
 
 private:
     void throwIfNeeded();

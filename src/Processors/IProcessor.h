@@ -6,6 +6,7 @@
 #include <atomic>
 #include <list>
 #include <memory>
+#include <span>
 #include <vector>
 #include <Processors/ProcessorsProfileLogInfo.h>
 #include <Processors/IProcessor_fwd.h>
@@ -391,9 +392,9 @@ public:
     /// This counter is used to calculate the number of rows right before AggregatingTransform.
     virtual void setRowsBeforeAggregationCounter(RowsBeforeStepCounterPtr /* counter */) { }
 
-    /// Memory spilling interface of the processor, nullptr if it cannot spill (see ISpillable).
-    /// For processors returning nullptr the memory usage is not tracked.
-    virtual ISpillable * getSpillable() { return nullptr; }
+    /// Distinct, non-null components this processor can service. The range and its objects remain
+    /// valid through graph removal, including after `Finished`.
+    virtual std::span<ISpillable * const> getSpillables() { return {}; }
 
     /// True for a fan-out that cannot take its next input chunk until every one of its outputs has
     /// accepted a share of the current one, so it cannot progress while an output is undemanded.

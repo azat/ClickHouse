@@ -72,8 +72,7 @@ public:
 
     String getName() const override { return "DistinctTransform"; }
 
-    Status prepare() override;
-    ISpillable * getSpillable() override { return allow_spilling ? &spillable : nullptr; }
+    std::span<ISpillable * const> getSpillables() override { return {&spillable_ptr, allow_spilling ? 1uz : 0uz}; }
     ProcessorMemoryStats getMemoryStats() const;
     size_t spill(size_t at_least_bytes);
 
@@ -82,7 +81,7 @@ protected:
 
 private:
     SpillableAdapter<DistinctTransform> spillable{*this};
-    bool spillable_registered = false;
+    ISpillable * const spillable_ptr = &spillable;
     /// An absent filter means subsequent chunks pass through without deduplication.
     std::optional<DistinctSetFilter> distinct_set;
     const UInt64 limit_hint;

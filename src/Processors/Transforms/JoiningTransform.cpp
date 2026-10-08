@@ -285,11 +285,6 @@ Block JoiningTransform::readExecute(Chunk & chunk)
 FillingRightJoinSideTransform::FillingRightJoinSideTransform(SharedHeader input_header, JoinPtr join_, FinishCounterPtr finish_counter_)
     : IProcessor({input_header}, {Block()}), join(std::move(join_)), finish_counter(std::move(finish_counter_))
 {
-    if (auto * spillable = getSpillable())
-    {
-        spillable->registerProcessor();
-        spillable_registered = true;
-    }
 }
 
 InputPort * FillingRightJoinSideTransform::addTotalsPort()
@@ -301,14 +296,6 @@ InputPort * FillingRightJoinSideTransform::addTotalsPort()
 }
 
 IProcessor::Status FillingRightJoinSideTransform::prepare()
-{
-    const auto status = prepareImpl();
-    if (status == Status::Finished && std::exchange(spillable_registered, false))
-        getSpillable()->unregisterProcessor();
-    return status;
-}
-
-IProcessor::Status FillingRightJoinSideTransform::prepareImpl()
 {
     auto & output = outputs.front();
 

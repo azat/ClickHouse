@@ -2,12 +2,17 @@
 #include <Processors/Executors/Runtime/V1/ExecutorTasks.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Processors/IProcessor.h>
+#include <Processors/ISpillable.h>
 #include <Processors/Port.h>
 #include <QueryPipeline/printPipeline.h>
 #include <IO/Operators.h>
 #include <IO/WriteBufferFromString.h>
 
 #include <Common/FailPoint.h>
+#include <Common/CurrentThread.h>
+#include <Common/MemorySpillScheduler.h>
+#include <Common/Scheduler/MemoryReservation.h>
+#include <Common/ThreadStatus.h>
 
 #include <algorithm>
 #include <memory>
@@ -47,17 +52,78 @@ String describeProcessor(const IProcessor * processor)
 
 }
 
-ExecutingGraph::ExecutingGraph(std::shared_ptr<Processors> processors_, bool profile_processors_)
-    : processors(std::move(processors_))
+ExecutingGraph::ExecutingGraph(
+    std::shared_ptr<Processors> processors_, bool profile_processors_, MemoryReservation * memory_reservation_)
+    : memory_reservation(memory_reservation_)
+    , processors(std::move(processors_))
     , profile_processors(profile_processors_)
 {
-    /// Create nodes for every processor.
-    for (auto it = processors->begin(); it != processors->end(); ++it)
-        addNode(it);
+    if (!memory_reservation)
+    {
+        if (auto group = CurrentThread::getGroup())
+            memory_spill_scheduler = group->memory_spill_scheduler;
+    }
 
-    /// Create edges.
+    try
+    {
+        /// Create nodes for every processor and register their spillable components.
+        for (auto it = processors->begin(); it != processors->end(); ++it)
+            addNode(it);
+
+        /// Create edges.
+        for (auto & node : nodes)
+            addEdges(node);
+    }
+    catch (...)
+    {
+        /// The graph's destructor does not run if construction fails.
+        detachSpillables();
+        throw;
+    }
+}
+
+ExecutingGraph::~ExecutingGraph()
+{
+    detachSpillables();
+}
+
+void ExecutingGraph::detachSpillables()
+{
     for (auto & node : nodes)
-        addEdges(node);
+        if (!node.registered_spillables.empty())
+            unregisterSpillables(node);
+    memory_reservation = nullptr;
+    memory_spill_scheduler.reset();
+}
+
+void ExecutingGraph::registerSpillables(Node & node)
+{
+    if (!memory_reservation && !memory_spill_scheduler)
+        return;
+    auto components = node.processor()->getSpillables();
+    node.registered_spillables.reserve(components.size());
+    for (auto * spillable : components)
+    {
+        chassert(spillable);
+        if (memory_reservation)
+            memory_reservation->registerSpillable(spillable);
+        else
+            memory_spill_scheduler->registerSpillable(spillable);
+        node.registered_spillables.push_back(spillable);
+    }
+}
+
+void ExecutingGraph::unregisterSpillables(Node & node)
+{
+    while (!node.registered_spillables.empty())
+    {
+        auto * spillable = node.registered_spillables.back();
+        node.registered_spillables.pop_back();
+        if (memory_reservation)
+            memory_reservation->unregisterSpillable(spillable);
+        else
+            memory_spill_scheduler->unregisterSpillable(spillable);
+    }
 }
 
 ExecutingGraph::Node & ExecutingGraph::addNode(Processors::iterator processor_iter)
@@ -70,6 +136,7 @@ ExecutingGraph::Node & ExecutingGraph::addNode(Processors::iterator processor_it
     if (!inserted)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Processor {} was already added to pipeline", processor->getName());
 
+    registerSpillables(new_node);
     return new_node;
 }
 
@@ -456,6 +523,8 @@ ExecutingGraph::UpdateNodeStatus ExecutingGraph::updateNode(IProcessor & initial
                     case IProcessor::Status::Finished:
                     {
                         node.status = ExecutingGraph::ExecStatus::Finished;
+                        if (last_status != IProcessor::Status::Finished)
+                            unregisterSpillables(node);
                         accountFinishedProcessorInGroup(*node.processor_iter);
                         break;
                     }

@@ -51,16 +51,6 @@ MergeSortingTransform::MergeSortingTransform(
     , max_block_bytes(max_block_bytes_)
     , threshold_tracker(threshold_tracker_)
 {
-    spillable.registerProcessor();
-    spillable_registered = true;
-}
-
-IProcessor::Status MergeSortingTransform::prepare()
-{
-    const auto status = SortingTransform::prepare();
-    if (status == Status::Finished && std::exchange(spillable_registered, false))
-        spillable.unregisterProcessor();
-    return status;
 }
 
 IProcessor::PipelineUpdate MergeSortingTransform::updatePipeline()

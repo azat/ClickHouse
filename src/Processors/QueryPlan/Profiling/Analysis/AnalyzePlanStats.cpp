@@ -417,7 +417,7 @@ AnalyzedStepData AnalyzeStepsStats::analyzeStep(const IQueryPlanStep * step) con
     UInt64 spilled_bytes = 0;
     for (auto * processor : step_processors)
     {
-        if (const auto * spillable = processor->getSpillable())
+        for (const auto * spillable : processor->getSpillables())
         {
             if (const auto * scope = spillable->getSpillScope(); scope && spill_scopes.insert(scope).second)
                 spilled_bytes += scope->getSpilledBytes();

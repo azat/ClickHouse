@@ -9,6 +9,7 @@
 #include <QueryPipeline/ReadProgressCallback.h>
 #include <base/types.h>
 #include <base/defines.h>
+#include <base/scope_guard.h>
 #include <Common/Logger.h>
 #include <Common/MemorySpillScheduler.h>
 #include <Common/CurrentThread.h>
@@ -39,8 +40,10 @@ namespace ErrorCodes
 namespace Runtime::V1
 {
 
-ExecutionThreadContext::ExecutionThreadContext(size_t thread_number_, bool profile_processors_, bool trace_processors_, ReadProgressCallback * callback, StepProfiler * step_profiler_)
+ExecutionThreadContext::ExecutionThreadContext(size_t thread_number_, bool profile_processors_, bool trace_processors_,
+    ReadProgressCallback * callback, StepProfiler * step_profiler_, QueryStatus * process_list_element_)
     : read_progress_callback(callback)
+    , process_list_element(process_list_element_)
     , step_profiler(step_profiler_)
     , thread_number(thread_number_)
     , profile_processors(profile_processors_)
@@ -79,58 +82,53 @@ static bool checkCanAddAdditionalInfoToException(const DB::Exception & exception
            && exception.code() != ErrorCodes::QUERY_WAS_CANCELLED_BY_CLIENT;
 }
 
-static void executeJob(IProcessor & processor, ReadProgressCallback * read_progress_callback)
+static void executeJob(IProcessor & processor, ReadProgressCallback * read_progress_callback,
+    QueryStatus * process_list_element)
 {
     try
     {
-        ISpillable * spillable = processor.getSpillable();
-        MemoryReservation * reservation = nullptr;
-
-        if (spillable)
+        auto components = processor.getSpillables();
+        MemoryReservation * reservation = !components.empty() && process_list_element ? process_list_element->getMemoryReservation() : nullptr;
+        for (auto * spillable : components)
         {
-            auto memory = spillable->getMemoryStats();
-            QueryStatusPtr process_list_element = read_progress_callback ? read_progress_callback->getProcessListElement() : nullptr;
-            reservation = process_list_element ? process_list_element->getMemoryReservation() : nullptr;
             if (reservation)
             {
-                reservation->updateReclaimable(spillable, memory.spillable_memory_bytes);
-                if (memory.spillable_memory_bytes > 0)
+                const auto spillable_bytes = reservation->updateReclaimable(spillable);
+                if (auto spill_request = reservation->takeSpillRequest(spillable, spillable_bytes))
                 {
-                    if (auto spill_request = reservation->takeSpillRequest(spillable, memory.spillable_memory_bytes))
-                    {
-                        auto * memory_tracker = process_list_element->getMemoryTracker();
-                        const auto & logger = getLogger("Scheduler");
+                    SCOPE_EXIT({ if (spill_request) reservation->cancelSpill(spillable, spill_request); });
+                    auto * memory_tracker = process_list_element->getMemoryTracker();
+                    const auto & logger = getLogger("Scheduler");
 
-                        LOG_TRACE(logger, "Spilling {}, of {} (tracked {})",
-                            formatReadableSizeWithBinarySuffix(spill_request),
-                            formatReadableSizeWithBinarySuffix(memory.spillable_memory_bytes),
-                            formatReadableSizeWithBinarySuffix(memory_tracker->get()));
+                    LOG_TRACE(logger, "Spilling {}, of {} (tracked {})",
+                        formatReadableSizeWithBinarySuffix(spill_request),
+                        formatReadableSizeWithBinarySuffix(spillable_bytes),
+                        formatReadableSizeWithBinarySuffix(memory_tracker->get()));
 
-                        Stopwatch watch;
-                        size_t spilled = spillable->spill(spill_request);
-                        auto new_spillable_memory_bytes = spillable->getMemoryStats().spillable_memory_bytes;
-                        reservation->finishSpill(spillable, spill_request, new_spillable_memory_bytes, memory_tracker);
+                    Stopwatch watch;
+                    const size_t spilled = spillable->spill(spill_request);
+                    const auto new_spillable_memory_bytes = reservation->updateReclaimable(spillable, /*report=*/ false);
+                    reservation->finishSpill(spillable, std::exchange(spill_request, 0), memory_tracker);
 
-                        LOG_TRACE(logger, "Spilled {}, remaining {}, tracked {} (took {} ms)",
-                            formatReadableSizeWithBinarySuffix(spilled),
-                            formatReadableSizeWithBinarySuffix(new_spillable_memory_bytes),
-                            formatReadableSizeWithBinarySuffix(memory_tracker->get()),
-                            watch.elapsedMilliseconds());
-                        ProfileEvents::increment(ProfileEvents::MemoryReservationSpilledBytes, spilled);
-                        ProfileEvents::increment(ProfileEvents::MemoryReservationSpillingMicroseconds, watch.elapsedMicroseconds());
-                    }
+                    LOG_TRACE(logger, "Spilled {}, remaining {}, tracked {} (took {} ms)",
+                        formatReadableSizeWithBinarySuffix(spilled),
+                        formatReadableSizeWithBinarySuffix(new_spillable_memory_bytes),
+                        formatReadableSizeWithBinarySuffix(memory_tracker->get()),
+                        watch.elapsedMilliseconds());
+                    ProfileEvents::increment(ProfileEvents::MemoryReservationSpilledBytes, spilled);
+                    ProfileEvents::increment(ProfileEvents::MemoryReservationSpillingMicroseconds, watch.elapsedMicroseconds());
                 }
             }
-            else if (memory.spillable_memory_bytes > 0 && CurrentThread::getGroup())
+            else if (CurrentThread::getGroup())
                 CurrentThread::getGroup()->memory_spill_scheduler->checkAndSpill(spillable);
         }
 
         processor.work();
 
-        if (spillable && reservation)
+        if (reservation)
         {
-            auto memory = spillable->getMemoryStats();
-            reservation->updateReclaimable(spillable, memory.spillable_memory_bytes);
+            for (auto * spillable : components)
+                reservation->updateReclaimable(spillable);
         }
 
         /// Update read progress only for source nodes.
@@ -206,7 +204,7 @@ bool ExecutionThreadContext::executeTask()
     bool success = true;
     try
     {
-        executeJob(*processor, read_progress_callback);
+        executeJob(*processor, read_progress_callback, process_list_element);
         ++processor->num_executed_jobs;
     }
     catch (...)

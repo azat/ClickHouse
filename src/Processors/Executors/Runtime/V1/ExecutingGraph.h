@@ -10,11 +10,15 @@
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include <boost/container/devector.hpp>
 
 namespace DB
 {
+
+struct MemoryReservation;
+class MemorySpillScheduler;
 
 namespace Runtime::V1
 {
@@ -88,6 +92,7 @@ class ExecutingGraph
         /// Current status. It is accessed concurrently, using mutex.
         ExecStatus status = ExecStatus::Idle;
         std::mutex status_mutex;
+        std::vector<ISpillable *> registered_spillables;
 
         /// Last state for profiling.
         std::optional<IProcessor::Status> last_processor_status;
@@ -118,7 +123,11 @@ public:
     using DequeWithMemoryTracker = boost::container::devector<IProcessor *, AllocatorWithMemoryTracking<IProcessor *>>;
     using Queue = std::queue<IProcessor *, DequeWithMemoryTracker>;
 
-    ExecutingGraph(std::shared_ptr<Processors> processors_, bool profile_processors_);
+    ExecutingGraph(std::shared_ptr<Processors> processors_, bool profile_processors_, MemoryReservation * memory_reservation_);
+    ~ExecutingGraph();
+
+    /// Called after workers stop, including cancellation and exception paths.
+    void detachSpillables();
 
     /// Traverse graph the first time to update all the childless nodes.
     void initializeExecution(Queue & queue, Queue & async_queue);
@@ -149,6 +158,12 @@ private:
     /// Each processor is directly tied to pipeline graph node.
     using ProcessorsMap = std::unordered_map<const IProcessor *, Node *>;
     ProcessorsMap processors_map;
+
+    MemoryReservation * memory_reservation = nullptr;
+    std::shared_ptr<MemorySpillScheduler> memory_spill_scheduler;
+
+    void registerSpillables(Node & node);
+    void unregisterSpillables(Node & node);
 
     /// Append a processor to the graph's processors list, create its Node, assign a stable id,
     /// register it in the processors map. Does not create edges — that is done separately by addEdges.

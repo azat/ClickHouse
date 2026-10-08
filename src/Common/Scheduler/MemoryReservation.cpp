@@ -215,34 +215,51 @@ ResourceCost MemoryReservation::getTotalReclaimable()
     return reclaimable_total;
 }
 
-void MemoryReservation::updateReclaimable(const ISpillable * spillable, ResourceCost total_bytes)
+void MemoryReservation::registerSpillable(const ISpillable * spillable)
 {
-    if (total_bytes < min_bytes_to_spill)
-        total_bytes = 0;
+    std::lock_guard lock(mutex);
+    auto & entry = spillable->spill_accounting;
+    chassert(!entry.reservation || entry.reservation == this);
+    entry.reservation = this;
+    ++entry.owners;
+}
 
+void MemoryReservation::unregisterSpillable(const ISpillable * spillable)
+{
     {
         std::lock_guard lock(mutex);
         auto & entry = spillable->spill_accounting;
-        chassert(!entry.reservation || entry.reservation == this);
-        entry.reservation = this;
-        if (entry.reclaimable == total_bytes)
+        chassert(entry.reservation == this && entry.owners > 0);
+        if (--entry.owners)
             return;
+        chassert(!entry.in_progress);
+        reclaimable_total -= std::exchange(entry.reclaimable, 0);
+        entry.reservation = nullptr;
+    }
+    reportReclaimable(/*force=*/ true);
+}
+
+ResourceCost MemoryReservation::updateReclaimable(const ISpillable * spillable, bool report)
+{
+    ResourceCost total_bytes = 0;
+    {
+        std::lock_guard report_lock(spillable->report_mutex);
+        total_bytes = spillable->getMemoryStats().spillable_memory_bytes;
+        if (total_bytes < min_bytes_to_spill)
+            total_bytes = 0;
+
+        std::lock_guard lock(mutex);
+        auto & entry = spillable->spill_accounting;
+        chassert(entry.reservation == this && entry.owners > 0);
+        if (entry.reclaimable == total_bytes)
+            return total_bytes;
         ProfileEvents::increment(ProfileEvents::MemoryReservationReclaimableBytes, std::max<ResourceCost>(total_bytes - entry.reclaimable, 0));
         reclaimable_total = reclaimable_total - entry.reclaimable + total_bytes;
         entry.reclaimable = total_bytes;
     }
-    reportReclaimable();
-}
-
-void MemoryReservation::removeReclaimable(const ISpillable * spillable)
-{
-    {
-        std::lock_guard lock(mutex);
-        auto & entry = spillable->spill_accounting;
-        /// Keep the in-progress guard until completion: another processor may still be spilling the shared object.
-        reclaimable_total -= std::exchange(entry.reclaimable, 0);
-    }
-    reportReclaimable(/*force=*/ true);
+    if (report)
+        reportReclaimable();
+    return total_bytes;
 }
 
 void MemoryReservation::reportReclaimable(bool force, ResourceCost settled_bytes)
@@ -296,11 +313,18 @@ ResourceCost MemoryReservation::takeSpillRequest(const ISpillable * spillable, R
     return claim;
 }
 
-void MemoryReservation::finishSpill(const ISpillable * spillable, ResourceCost settled_bytes, ResourceCost new_spillable_memory_bytes, const MemoryTracker * memory_tracker)
+void MemoryReservation::cancelSpill(const ISpillable * spillable, ResourceCost bytes)
 {
-    if (new_spillable_memory_bytes < min_bytes_to_spill)
-        new_spillable_memory_bytes = 0;
+    std::lock_guard lock(mutex);
+    auto & entry = spillable->spill_accounting;
+    chassert(entry.in_progress && spills_in_flight > 0);
+    entry.in_progress = false;
+    --spills_in_flight;
+    enqueued_spill += bytes;
+}
 
+void MemoryReservation::finishSpill(const ISpillable * spillable, ResourceCost settled_bytes, const MemoryTracker * memory_tracker)
+{
     {
         std::lock_guard lock(mutex);
         chassert(spills_in_flight > 0);
@@ -309,10 +333,6 @@ void MemoryReservation::finishSpill(const ISpillable * spillable, ResourceCost s
         auto & entry = spillable->spill_accounting;
         chassert(entry.in_progress);
         entry.in_progress = false;
-
-        reclaimable_total = reclaimable_total - entry.reclaimable + new_spillable_memory_bytes;
-        entry.reclaimable = new_spillable_memory_bytes;
-        reclaimable_increment.changeTo(reclaimable_total);
     }
 
     syncWithMemoryTracker(memory_tracker);

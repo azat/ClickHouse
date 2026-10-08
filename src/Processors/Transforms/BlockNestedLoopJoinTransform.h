@@ -31,16 +31,14 @@ public:
     Status prepare() override;
     void work() override;
 
-    ISpillable * getSpillable() override { return data->getSpillable(); }
+    std::span<ISpillable * const> getSpillables() override { return {&spillable, 1}; }
 
 private:
-    Status prepareImpl();
-    bool spillable_registered = false;
-
     /// Counts this stream out of the build phase, closing the store when it is the last one.
     void finishBuild();
 
     BlockNestedLoopJoinDataPtr data;
+    ISpillable * const spillable = data->getSpillable();
     FinishCounterPtr finish_counter;
     /// This stream's place among the build streams, and so the temporary file it spills to.
     const size_t stream_index;

@@ -526,8 +526,10 @@ TEST(BlockNestedLoopJoinData, SpillingOnDemandMovesTheStoredBlocksOut)
     auto finish_counter = std::make_shared<FinishCounter>(2);
     BlockNestedLoopBuildTransform first(makeHeader(), data, finish_counter, 0);
     BlockNestedLoopBuildTransform second(makeHeader(), data, finish_counter, 1);
-    auto * spillable = first.getSpillable();
-    ASSERT_EQ(spillable, second.getSpillable());
+    ASSERT_EQ(first.getSpillables().size(), 1);
+    ASSERT_EQ(second.getSpillables().size(), 1);
+    auto * spillable = first.getSpillables().front();
+    ASSERT_EQ(spillable, second.getSpillables().front());
     ASSERT_EQ(spillable, data->getSpillable());
 
     /// Nothing spills on its own without a threshold, ...
@@ -543,8 +545,8 @@ TEST(BlockNestedLoopJoinData, SpillingOnDemandMovesTheStoredBlocksOut)
     EXPECT_EQ(spillable->spill(resident_bytes + 1), resident_bytes);
     EXPECT_EQ(data->getNumSpilledBlocks(), 2);
     EXPECT_EQ(data->getInMemoryBytes(), 0);
-    EXPECT_EQ(second.getSpillable()->getMemoryStats().spillable_memory_bytes, 0);
-    EXPECT_EQ(second.getSpillable()->spill(1), 0);
+    EXPECT_EQ(second.getSpillables().front()->getMemoryStats().spillable_memory_bytes, 0);
+    EXPECT_EQ(second.getSpillables().front()->spill(1), 0);
 
     /// Later blocks go to the build streams' own files; the scheduler's file stays separate.
     ASSERT_TRUE(data->addBlock(makeBlock({4, 5}), 2, 0));
