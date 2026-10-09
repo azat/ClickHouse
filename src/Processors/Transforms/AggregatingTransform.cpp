@@ -1231,7 +1231,7 @@ void rebuildVariantsToKeptKeys(
 
 }
 
-/// One component for the shared backlog, independent of each producer's local table.
+/// One component for the shared backlog and drain residue, independent of each producer's local table.
 class AdaptiveAggregationSpillable
 {
 public:
@@ -1247,7 +1247,8 @@ public:
         if (!accepting_spills.load(std::memory_order_acquire)
             || !params->params.tmp_data_scope || !session->initialized.load(std::memory_order_acquire))
             return {};
-        return {.spillable_memory_bytes = static_cast<Int64>(session->backlog.enqueuedBytes())};
+        return {.spillable_memory_bytes = static_cast<Int64>(
+            session->backlog.enqueuedBytes() + session->early_drain_tracked_bytes.load(std::memory_order_relaxed))};
     }
 
     size_t spill(size_t at_least_bytes)

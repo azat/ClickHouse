@@ -462,8 +462,8 @@ public:
         bool only_over_trigger) const;
 
     /// The same valve driven by an explicit spill request instead of the external threshold:
-    /// drains batch after batch until at least this many staged bytes are released or the
-    /// backlogs are empty. Returns the staged bytes released.
+    /// writes even a below-floor tail, including any existing shared drain residue. Stops once
+    /// at least this many bytes are released or there is nothing left. Returns the bytes released.
     size_t drainStagedChunksForSpill(AdaptiveAggregationSession & shared, size_t at_least_bytes) const;
 
     /// The finish drain: converts everything still enqueued into disk-mergeable form when the

@@ -288,12 +288,12 @@ struct AdaptiveAggregationSession
     /// initialization: the sweeps replace the table but never its type, and a producer reads
     /// this to size its chunks at publication without taking the coordinator lock.
     AggregatedDataVariants::Type drain_type = AggregatedDataVariants::Type::EMPTY;
-    /// What the drains into `early_drain_variants` were seen to allocate, as the sweeping
-    /// threads' memory trackers count them, summed since the table was last replaced. The
-    /// table's `allocatedBytes` sums its arenas and hash-table buffers; the heap that states
-    /// such as `uniqExact` or `groupBitmap` own outside the arenas is seen only here. Guarded
-    /// by `pressure_sweep_mutex`, like the table itself.
-    size_t early_drain_tracked_bytes = 0;
+    /// The drain table's footprint estimate: grows by each drain's tracked allocations and is
+    /// at least its `allocatedBytes`, which includes preallocated arenas and hash-table buffers.
+    /// Tracking also includes heap owned by states such as `uniqExact` and `groupBitmap`.
+    /// Writers hold `pressure_sweep_mutex`; the scheduler reads without inspecting the mutable table.
+    /// Reset when the table is replaced, so an empty replacement is not reported as reclaimable.
+    std::atomic<size_t> early_drain_tracked_bytes{0};
 
     /// Serializes pressure sweeps: one sweeper at a time sheds memory, and a single sweeper
     /// needs no per-bucket coordination; merge-time drains run after the finish barrier and
