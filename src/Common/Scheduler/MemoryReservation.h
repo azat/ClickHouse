@@ -7,7 +7,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
-#include <unordered_set>
+#include <boost/intrusive/slist.hpp>
 #include <base/defines.h>
 
 class MemoryTracker;
@@ -24,6 +24,10 @@ class ISpillRequestListener
 public:
     virtual ~ISpillRequestListener() = default;
     virtual void notifySpillRequested() = 0;
+
+private:
+    friend struct MemoryReservation;
+    boost::intrusive::slist_member_hook<> spill_listener_hook;
 };
 
 /// `MemoryReservation` bridges a running query and the memory scheduler: the scheduler caps each
@@ -128,7 +132,11 @@ private:
 
     /// Detachment waits for notifications to finish. Never acquired while holding `mutex`.
     std::mutex spill_listeners_mutex;
-    std::unordered_set<ISpillRequestListener *> spill_listeners;
+    /// Usually only one listener
+    boost::intrusive::slist<ISpillRequestListener,
+        boost::intrusive::member_hook<ISpillRequestListener,
+            boost::intrusive::slist_member_hook<>, &ISpillRequestListener::spill_listener_hook>,
+        boost::intrusive::constant_time_size<false>> spill_listeners;
 
     std::exception_ptr kill_reason;
     std::exception_ptr fail_reason;

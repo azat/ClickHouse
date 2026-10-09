@@ -265,20 +265,21 @@ bool MemoryReservation::scheduleSpill(const ISpillable * spillable, const IProce
 void MemoryReservation::addSpillListener(ISpillRequestListener & listener)
 {
     std::lock_guard lock(spill_listeners_mutex);
-    spill_listeners.insert(&listener);
+    spill_listeners.push_front(listener);
 }
 
 void MemoryReservation::removeSpillListener(ISpillRequestListener & listener)
 {
     std::lock_guard lock(spill_listeners_mutex);
-    spill_listeners.erase(&listener);
+    if (listener.spill_listener_hook.is_linked())
+        spill_listeners.erase(spill_listeners.iterator_to(listener));
 }
 
 void MemoryReservation::notifySpillRequested()
 {
     std::lock_guard lock(spill_listeners_mutex);
-    for (auto * listener : spill_listeners)
-        listener->notifySpillRequested();
+    for (auto & listener : spill_listeners)
+        listener.notifySpillRequested();
 }
 
 ResourceCost MemoryReservation::updateReclaimable(const ISpillable * spillable, bool report)
