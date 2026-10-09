@@ -92,6 +92,24 @@ size_t ExternalDistinctTransform::minBytesInRun() const
         ? std::min(max_bytes_before_external_distinct, DEFAULT_BYTES_IN_RUN) : DEFAULT_BYTES_IN_RUN;
 }
 
+const ExternalDistinctTransform::CollectingInput * ExternalDistinctTransform::getCollectingInput() const
+{
+    if (const auto * collecting = std::get_if<CollectingInput>(&state))
+        return collecting;
+    if (const auto * tail = std::get_if<PreparingTail>(&state))
+        return &tail->collecting;
+    if (const auto * tail = std::get_if<ConnectingTailRun>(&state))
+        return &tail->remaining;
+    if (const auto * tail = std::get_if<WritingTailRun>(&state))
+        return &tail->remaining;
+    return nullptr;
+}
+
+ExternalDistinctTransform::CollectingInput * ExternalDistinctTransform::getCollectingInput()
+{
+    return const_cast<CollectingInput *>(std::as_const(*this).getCollectingInput());
+}
+
 ProcessorMemoryStats ExternalDistinctTransform::getMemoryStats() const
 {
     ProcessorMemoryStats res;
@@ -102,7 +120,7 @@ ProcessorMemoryStats ExternalDistinctTransform::getMemoryStats() const
         res.need_reserved_memory_bytes = 2 * DEFAULT_BYTES_IN_RUN
             + estimateSortingWorkspace(maxRowsInSortingUnit()) + 3 * tmp_data->getSettings().buffer_size;
     }
-    else if (const auto * collecting = std::get_if<CollectingInput>(&state))
+    else if (const auto * collecting = getCollectingInput())
     {
         res.spillable_memory_bytes = collecting->sorted_bytes + collecting->pending.allocated_bytes;
         if (res.spillable_memory_bytes)
@@ -140,8 +158,19 @@ size_t ExternalDistinctTransform::spill(size_t at_least_bytes)
             extractSuppressionRun(extracting);
         }
     }
-    else if (auto * collecting = std::get_if<CollectingInput>(&state))
+    else
     {
+        /// A prepared tail prefix must be registered before any later suffix, so equal keys retain
+        /// their first payload. Finish its unconnected run before spilling more of the tail.
+        if (auto * connecting = std::get_if<ConnectingTailRun>(&state))
+        {
+            spillRun(std::move(connecting->run));
+            auto remaining = std::move(connecting->remaining);
+            state.emplace<PreparingTail>(std::move(remaining));
+        }
+
+        auto * collecting = getCollectingInput();
+        chassert(collecting);
         flushSortingUnit(*collecting);
         /// Spill a prefix of whole chunks so earlier runs still win ties for the first payload.
         Chunks chunks;
@@ -158,6 +187,8 @@ size_t ExternalDistinctTransform::spill(size_t at_least_bytes)
         collecting->sorted_chunks.erase(collecting->sorted_chunks.begin(), collecting->sorted_chunks.begin() + chunks.size());
         collecting->sorted_bytes -= bytes;
         collecting->sorted_rows -= rows;
+        if (!std::holds_alternative<CollectingInput>(state))
+            ProfileEvents::increment(ProfileEvents::ExternalDistinctTailSpilledRows, rows);
 
         auto run = prepareRun(spill_layout->getInputRunHeader(), std::move(chunks), bytes,
             spill_layout->getKeySortDescription(), MergeSorter::Mode::MergeUniqueChunks);

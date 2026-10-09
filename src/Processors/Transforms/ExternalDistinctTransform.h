@@ -212,6 +212,8 @@ private:
         Finishing>;
 
     Status prepareInput();
+    CollectingInput * getCollectingInput();
+    const CollectingInput * getCollectingInput() const;
     Status prepareCollectingInput(CollectingInput & collecting);
     Status prepareRunWrite(RunWriteProgress & progress, OutputPort & output);
     Status prepareSuppressionWrite(WritingSuppressionRun & writing);
