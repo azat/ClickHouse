@@ -5,8 +5,6 @@
 CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../shell_config.sh
 . "$CUR_DIR"/../shell_config.sh
-# shellcheck source=workloads.lib
-. "$CUR_DIR"/workloads.lib
 
 set -e
 
@@ -29,7 +27,6 @@ function cleanup()
         wait "$client_pid" 2>/dev/null || :
     fi
     $CLICKHOUSE_CLIENT -nm -q "DROP TABLE IF EXISTS spill_result; DROP WORKLOAD IF EXISTS $workload" >/dev/null 2>&1 || :
-    workload_remove_our_root
     if [[ -n $created_resource ]]; then
         $CLICKHOUSE_CLIENT -q "DROP RESOURCE $resource" >/dev/null 2>&1 || :
     fi
@@ -37,14 +34,13 @@ function cleanup()
 }
 trap cleanup EXIT
 
-workload_ensure_root
 if [[ -z $resource ]]; then
     resource=memory_$CLICKHOUSE_TEST_UNIQUE_NAME
     $CLICKHOUSE_CLIENT -q "CREATE RESOURCE $resource (MEMORY RESERVATION)"
     created_resource=1
 fi
 $CLICKHOUSE_CLIENT -nm -q "
-    CREATE WORKLOAD $workload IN $WORKLOAD_ROOT SETTINGS max_memory = '1Gi', max_memory_before_spill = 0, max_memory_to_spill_ratio = 0;
+    CREATE WORKLOAD $workload SETTINGS max_memory = '1Gi', max_memory_before_spill = 0, max_memory_to_spill_ratio = 0;
     CREATE TABLE spill_result (number UInt64, c UInt64) ENGINE = Memory;
 "
 
@@ -82,7 +78,7 @@ cat "$files/block" >&"$input"
 # Publication happens after consuming the block. There is no more aggregation work until EOF.
 wait_for "SELECT count() = 1 FROM system.processes WHERE query_id = '$query_id' AND ProfileEvents['MemoryReservationReclaimableBytes'] > 1048576"
 $CLICKHOUSE_CLIENT -q "SELECT ProfileEvents['MemoryReservationSpilledBytes'] = 0 FROM system.processes WHERE query_id = '$query_id'"
-$CLICKHOUSE_CLIENT -q "CREATE OR REPLACE WORKLOAD $workload IN $WORKLOAD_ROOT SETTINGS max_memory = '1Gi', max_memory_before_spill = 1, max_memory_to_spill_ratio = 0"
+$CLICKHOUSE_CLIENT -q "CREATE OR REPLACE WORKLOAD $workload SETTINGS max_memory = '1Gi', max_memory_before_spill = 1, max_memory_to_spill_ratio = 0"
 wait_for "SELECT count() = 1 FROM system.processes WHERE query_id = '$query_id' AND ProfileEvents['MemoryReservationSpilledBytes'] > 0"
 echo 'Spilled while waiting for input'
 

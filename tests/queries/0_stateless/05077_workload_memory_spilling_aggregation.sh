@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
 # Tags: long, no-parallel
+# The singleton `MEMORY RESERVATION` resource is created and dropped by these tests.
 
 CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../shell_config.sh
 . "$CUR_DIR"/../shell_config.sh
-# shellcheck source=workloads.lib
-. "$CUR_DIR"/workloads.lib
 
 workload=w_$CLICKHOUSE_TEST_UNIQUE_NAME
-workload_ensure_root
-parent_workload=$WORKLOAD_ROOT
 
 function cleanup()
 {
   $CLICKHOUSE_CLIENT -nm -q "DROP WORKLOAD $workload" >& /dev/null || :
-  workload_remove_our_root
   $CLICKHOUSE_CLIENT -q "DROP RESOURCE IF EXISTS memory" >& /dev/null || :
 }
 trap cleanup EXIT
@@ -32,7 +28,7 @@ settings=(
 )
 $CLICKHOUSE_CLIENT --enable_adaptive_aggregator 1 -nm "${settings[@]}" -q "
 CREATE OR REPLACE RESOURCE memory (MEMORY RESERVATION);
-CREATE OR REPLACE WORKLOAD $workload IN $parent_workload SETTINGS max_memory = '4Gi', max_memory_before_spill = '200Mi';
+CREATE OR REPLACE WORKLOAD $workload SETTINGS max_memory = '4Gi', max_memory_before_spill = '200Mi';
 SELECT count(), sum(c) FROM (SELECT number AS k, count() AS c FROM numbers_mt(20e6) GROUP BY k) SETTINGS enable_adaptive_aggregator=1;
 SELECT count(), sum(c) FROM (SELECT number AS k, count() AS c FROM numbers_mt(20e6) GROUP BY k) SETTINGS enable_adaptive_aggregator=0;
 "

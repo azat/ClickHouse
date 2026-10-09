@@ -1,29 +1,25 @@
 #!/usr/bin/env bash
 # Tags: long, no-parallel
+# The singleton `MEMORY RESERVATION` resource is created and dropped by these tests.
 
 CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../shell_config.sh
 . "$CUR_DIR"/../shell_config.sh
-# shellcheck source=workloads.lib
-. "$CUR_DIR"/workloads.lib
 
 set -e
 
 workload=w_$CLICKHOUSE_TEST_UNIQUE_NAME
-workload_ensure_root
-parent_workload=$WORKLOAD_ROOT
 
 function cleanup()
 {
     $CLICKHOUSE_CLIENT -q "DROP WORKLOAD IF EXISTS $workload" >& /dev/null || :
-    workload_remove_our_root
     $CLICKHOUSE_CLIENT -q "DROP RESOURCE IF EXISTS memory" >& /dev/null || :
 }
 trap cleanup EXIT
 
 $CLICKHOUSE_CLIENT -nm -q "
 CREATE OR REPLACE RESOURCE memory (MEMORY RESERVATION);
-CREATE WORKLOAD $workload IN $parent_workload SETTINGS max_memory = '2Gi', max_memory_before_spill = '16Mi';
+CREATE WORKLOAD $workload SETTINGS max_memory = '2Gi', max_memory_before_spill = '16Mi';
 "
 
 # Only workload pressure can trigger spilling; the per-query thresholds and adaptive scheduler are disabled.
