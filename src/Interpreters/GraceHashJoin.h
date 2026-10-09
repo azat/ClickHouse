@@ -93,7 +93,7 @@ public:
 
     void initialize(const Block & sample_block) override;
 
-    bool addBlockToJoin(const Block & block, bool check_limits) override;
+    bool addBlockToJoin(const Block & block, size_t num_rows, JoinBuildContext context) override;
     void checkTypesOfKeys(const Block & block) const override;
     JoinResultPtr joinBlock(Block block) override;
 
@@ -131,9 +131,10 @@ private:
     InMemoryJoinPtr makeInMemoryJoin(const String & bucket_id, size_t reserve_num = 0);
 
     /// Add right table block to the @join. Calls @rehash on overflow.
-    void addBlockToJoinImpl(Block block);
+    void addBlockToJoinImpl(Block block, JoinBuildContext context);
+
     /// Split the bucket held in memory in two, half of it onto disk. Caller holds `hash_join_mutex`.
-    void repartitionCurrentBucket(size_t prev_keys_num, Block leftover);
+    void repartitionCurrentBucket(size_t prev_keys_num, Block leftover, JoinBuildContext context);
     bool canForceRepartition() const;
 
     /// Check that join satisfies limits on rows/bytes in table_join.

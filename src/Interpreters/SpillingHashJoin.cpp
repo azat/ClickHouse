@@ -78,7 +78,7 @@ SpillingHashJoin::SpillingHashJoin(
 
 SpillingHashJoin::~SpillingHashJoin() = default;
 
-void SpillingHashJoin::tryConvertSlots()
+void SpillingHashJoin::tryConvertSlots(JoinBuildContext context)
 {
     chassert(concurrent_join);
     chassert(grace_join);
@@ -98,7 +98,7 @@ void SpillingHashJoin::tryConvertSlots()
         auto blocks = concurrent_join->releaseSlotBlocks(slot);
         while (!blocks.empty())
         {
-            grace_join->addBlockToJoin(blocks.front(), /*check_limits=*/false);
+            grace_join->addBlockToJoin(blocks.front(), blocks.front().rows(), context.callerChecksLimits());
             blocks.pop_front();
         }
     }
@@ -122,15 +122,15 @@ std::string SpillingHashJoin::getAlgorithm() const
     return toString(concurrent_join ? JoinAlgorithm::PARALLEL_HASH : JoinAlgorithm::HASH);
 }
 
-bool SpillingHashJoin::addBlockToJoin(const Block & block, bool check_limits)
+bool SpillingHashJoin::addBlockToJoin(const Block & block, size_t num_rows, JoinBuildContext context)
 {
     /// Fast path: already switched to GraceHashJoin (no lock needed).
     if (state.load(std::memory_order_acquire) != State::COLLECTING)
     {
         /// Help convert one ConcurrentHashJoin slot while in GRACE_HASH_JOIN state.
         if (concurrent_join)
-            tryConvertSlots();
-        return chosen_join->addBlockToJoin(block, check_limits);
+            tryConvertSlots(context);
+        return chosen_join->addBlockToJoin(block, num_rows, context);
     }
 
     /// The hash table buffer grows in power-of-two steps. Doubling from X to 2X allocates the new
@@ -143,20 +143,20 @@ bool SpillingHashJoin::addBlockToJoin(const Block & block, bool check_limits)
     if (concurrent_join)
     {
         if (concurrent_join->getTotalByteCount() * 2 >= max_bytes_before_external_join)
-            switchToGraceHashJoin();
+            switchToGraceHashJoin(context);
     }
     else
     {
         if (hash_join->getTotalByteCount() * 2 >= max_bytes_before_external_join)
-            switchToGraceHashJoin();
+            switchToGraceHashJoin(context);
     }
 
     /// Re-check: we may have just switched.
     if (state.load(std::memory_order_acquire) != State::COLLECTING)
     {
         if (concurrent_join)
-            tryConvertSlots();
-        return chosen_join->addBlockToJoin(block, check_limits);
+            tryConvertSlots(context);
+        return chosen_join->addBlockToJoin(block, num_rows, context);
     }
 
     if (concurrent_join)
@@ -166,13 +166,13 @@ bool SpillingHashJoin::addBlockToJoin(const Block & block, bool check_limits)
 
         /// Re-check: another thread may have switched while we waited for the lock.
         if (state.load(std::memory_order_acquire) != State::COLLECTING)
-            return chosen_join->addBlockToJoin(block, check_limits);
+            return chosen_join->addBlockToJoin(block, num_rows, context);
 
-        return concurrent_join->addBlockToJoin(block, check_limits);
+        return concurrent_join->addBlockToJoin(block, num_rows, context);
     }
 
     /// Single-thread HashJoin path.
-    return hash_join->addBlockToJoin(block, check_limits);
+    return hash_join->addBlockToJoin(block, num_rows, context);
 }
 
 ProcessorMemoryStats SpillingHashJoin::getMemoryStats() const
@@ -208,7 +208,7 @@ size_t SpillingHashJoin::spill(size_t at_least_bytes)
     if (state.load(std::memory_order_acquire) == State::COLLECTING)
     {
         size_t before = getTotalByteCount();
-        switchToGraceHashJoin(/*spill_immediately=*/true);
+        switchToGraceHashJoin(JoinBuildContext::serial(), /*spill_immediately=*/true);
         size_t after = getTotalByteCount();
         /// Check the new grace bucket's spillable estimate before requesting a repartition.
         return before > after ? before - after : 0;
@@ -217,7 +217,7 @@ size_t SpillingHashJoin::spill(size_t at_least_bytes)
     return grace_join ? grace_join->spill(at_least_bytes) : 0;
 }
 
-void SpillingHashJoin::switchToGraceHashJoin(bool spill_immediately)
+void SpillingHashJoin::switchToGraceHashJoin(JoinBuildContext context, bool spill_immediately)
 {
     /// A scheduler-requested switch must partition the data, not just rebuild it in one bucket.
     const size_t num_buckets = spill_immediately ? std::max<size_t>(initial_num_buckets, 2) : initial_num_buckets;
@@ -258,13 +258,19 @@ void SpillingHashJoin::switchToGraceHashJoin(bool spill_immediately)
             grace_join->initialize(*left_sample_block);
             chosen_join = grace_join;
 
+            /// `spill` has no build-stream identity. Replay under the exclusive lock before publishing
+            /// the new join, so its `serial` context cannot overlap another insert into that join.
+            if (spill_immediately)
+                tryConvertSlots(context);
+
             /// Set state BEFORE releasing the lock so new `addBlockToJoin` calls
             /// see GRACE_HASH_JOIN and go directly to `grace_join`.
             state.store(State::GRACE_HASH_JOIN, std::memory_order_release);
         }
         /// Convert ConcurrentHashJoin slots into GraceHashJoin.
         /// Other build-phase threads will also help via `addBlockToJoin`.
-        tryConvertSlots();
+        if (!spill_immediately)
+            tryConvertSlots(context);
 
         QueryExecutionCounters::addUsedJoinAlgorithm(JoinAlgorithm::GRACE_HASH);
         return;
@@ -296,7 +302,7 @@ void SpillingHashJoin::switchToGraceHashJoin(bool spill_immediately)
     /// freeing each after insertion to limit peak memory.
     while (!right_blocks.empty())
     {
-        chosen_join->addBlockToJoin(right_blocks.front(), /*check_limits=*/false);
+        chosen_join->addBlockToJoin(right_blocks.front(), right_blocks.front().rows(), context.callerChecksLimits());
         right_blocks.pop_front();
     }
 
@@ -316,7 +322,7 @@ void SpillingHashJoin::onBuildPhaseFinish()
         const size_t total_bytes = concurrent_join ? concurrent_join->getTotalByteCount() : hash_join->getTotalByteCount();
         if (total_bytes >= max_bytes_before_external_join)
         {
-            switchToGraceHashJoin();
+            switchToGraceHashJoin(JoinBuildContext::serial());
         }
         else if (concurrent_join)
         {
