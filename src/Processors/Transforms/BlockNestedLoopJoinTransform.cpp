@@ -239,6 +239,7 @@ BlockNestedLoopProbeTransform::BlockNestedLoopProbeTransform(
     for (const auto & required_column : predicate.actions->getRequiredColumnsWithTypes())
         predicate_input_header.insert(ColumnWithTypeAndName(nullptr, required_column.type, required_column.name));
     predicate_input_positions = predicate.actions->getInputPositions(predicate_input_header);
+    set_spillables.add(predicate.actions->getActionsDAG());
 }
 
 IProcessor::Status BlockNestedLoopProbeTransform::prepare()

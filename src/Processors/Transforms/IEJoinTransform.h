@@ -7,6 +7,7 @@
 #include <Columns/IColumn.h>
 #include <Core/Block.h>
 #include <Interpreters/JoinExpressionActions.h>
+#include <Interpreters/SetSpillable.h>
 #include <Processors/Chunk.h>
 #include <Processors/Merges/Algorithms/IMergingAlgorithm.h>
 #include <Processors/Merges/IMergingTransform.h>
@@ -93,6 +94,7 @@ public:
         size_t max_block_bytes_);
 
     const char * getName() const override { return "IEJoinAlgorithm"; }
+    std::span<ISpillable * const> getSpillables() const { return set_spillables.get(); }
     void initialize(Inputs inputs) override;
     void consume(Input & input, size_t source_num) override;
     Status merge() override;
@@ -255,6 +257,7 @@ private:
     std::array<KeyOrder, 2> key_order;
     /// The residual ON condition gating candidate pairs, if any.
     std::optional<IEJoinResidualCondition> residual;
+    SetSpillables set_spillables;
     /// Header of the residual's input columns (in its required-columns order) and the
     /// precomputed input positions for `ExpressionActions::executeOnColumns`.
     Block residual_input_header;
@@ -384,6 +387,7 @@ public:
         size_t max_block_bytes);
 
     String getName() const override { return "IEJoinTransform"; }
+    std::span<ISpillable * const> getSpillables() override { return algorithm.getSpillables(); }
 };
 
 }

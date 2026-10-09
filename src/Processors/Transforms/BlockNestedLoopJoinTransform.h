@@ -86,6 +86,7 @@ public:
         size_t num_probe_streams_ = 1);
 
     String getName() const override { return "BlockNestedLoopProbe"; }
+    std::span<ISpillable * const> getSpillables() override { return set_spillables.get(); }
 
     Status prepare() override;
     void work() override;
@@ -191,6 +192,7 @@ private:
     /// This stream's own way into the stored build blocks; the walk over them is what it reads back.
     BuildSideBlockReader build_reader;
     BlockNestedLoopPredicate predicate;
+    SetSpillables set_spillables;
     /// The fixed input structure of `predicate.actions`, and its precomputed input mapping.
     Block predicate_input_header;
     std::vector<ssize_t> predicate_input_positions;

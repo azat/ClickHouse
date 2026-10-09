@@ -3,6 +3,8 @@
 #include <Processors/Transforms/JoiningTransform.h>
 
 #include <Interpreters/ExpressionAnalyzer.h>
+#include <Interpreters/ExpressionActions.h>
+#include <Interpreters/TableJoin.h>
 #include <Interpreters/JoinUtils.h>
 #include <Processors/Port.h>
 #include <Processors/ISpillable.h>
@@ -60,6 +62,9 @@ JoiningTransform::JoiningTransform(
     , max_block_size(max_block_size_)
     , match_counter(std::move(match_counter_))
 {
+    if (const auto & actions = join->getTableJoin().getMixedJoinExpression())
+        set_spillables.add(actions->getActionsDAG());
+
     if (!join->isFilled())
         inputs.emplace_back(Block(), this); // Wait for FillingRightJoinSideTransform
 }
@@ -575,6 +580,8 @@ DelayedJoinedBlocksTransform::DelayedJoinedBlocksTransform(size_t num_streams, J
     : IProcessor(InputPorts{}, OutputPorts(num_streams, Block()))
     , join(std::move(join_))
 {
+    if (const auto & actions = join->getTableJoin().getMixedJoinExpression())
+        set_spillables.add(actions->getActionsDAG());
 }
 
 void DelayedJoinedBlocksTransform::work()
