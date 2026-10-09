@@ -32,7 +32,7 @@ public:
     virtual size_t spill(size_t at_least_bytes) = 0;
 
     /// The scope retains cumulative spill statistics after its temporary files are deleted.
-    /// Multiple processors can share a scope; count it once when reporting a plan step.
+    /// Multiple processors and plan steps can share a scope; count it once per plan.
     virtual const TemporaryDataOnDiskScope * getSpillScope() const { return nullptr; }
 
 private:

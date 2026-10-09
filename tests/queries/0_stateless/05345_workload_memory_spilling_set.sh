@@ -41,6 +41,15 @@ function run_query()
     )
 
     $CLICKHOUSE_CLIENT "${settings[@]}" --log_comment "$CLICKHOUSE_TEST_UNIQUE_NAME/$1" -q "$2"
+
+    # `EXPLAIN ANALYZE` reports a positive spill total once, under the builder or the index-analysis consumer.
+    $CLICKHOUSE_CLIENT "${settings[@]}" -q "
+    WITH groupArray(explain) AS lines,
+        arrayFilter(i -> lines[i] LIKE '%Spill: spilled %', arrayEnumerate(lines)) AS spills
+    SELECT '$1', arrayMap(i -> trimBoth(lines[i - 1]), spills),
+        arrayAll(i -> match(lines[i], 'Spill: spilled [1-9]'), spills)
+    FROM (EXPLAIN ANALYZE pretty = 0, compact = 0, actions = 0, indexes = 0, description = 0 $2)
+    "
 }
 
 # Construction exceeds the soft limit before the consumer starts.
