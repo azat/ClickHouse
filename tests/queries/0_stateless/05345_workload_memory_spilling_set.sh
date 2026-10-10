@@ -34,7 +34,7 @@ function run_query()
         --use_index_for_in_with_subqueries_max_values 0
         --max_rows_to_read 0
         --max_threads 4
-        --max_block_size 1024
+        --max_block_size 16384
         --max_untracked_memory 0
         --min_bytes_to_spill 8Mi
         --log_profile_events 1
