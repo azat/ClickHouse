@@ -775,7 +775,7 @@ bool InsertDependenciesBuilder::storageDeduplicatesBlocksOnInsert(const StorageP
     }
     if (const auto * alias = dynamic_cast<const StorageAlias *>(storage.get()))
     {
-        auto target = alias->tryGetTargetTable();
+        auto target = alias->tryGetTargetTableWithoutAccessCheck();
         return !target || storageDeduplicatesBlocksOnInsert(target, depth + 1);
     }
     if (const auto * proxy = dynamic_cast<const StorageProxy *>(storage.get()))
@@ -819,7 +819,7 @@ bool InsertDependenciesBuilder::storageRebuildsDeduplicationIdsOnInsert(const St
     /// when it cannot be resolved).
     if (const auto * alias = dynamic_cast<const StorageAlias *>(storage.get()))
     {
-        auto target = alias->tryGetTargetTable();
+        auto target = alias->tryGetTargetTableWithoutAccessCheck();
         return !target || storageRebuildsDeduplicationIdsOnInsert(target, depth + 1);
     }
 
@@ -846,7 +846,7 @@ bool InsertDependenciesBuilder::forwardedInsertReachesDependentView(const Storag
     /// Follow the forwarding chain to the concrete local target where it is known ...
     if (const auto * alias = dynamic_cast<const StorageAlias *>(storage.get()))
     {
-        auto target = alias->tryGetTargetTable();
+        auto target = alias->tryGetTargetTableWithoutAccessCheck();
         return !target || forwardedInsertReachesDependentView(target, depth + 1);
     }
     if (const auto * materialized_view = dynamic_cast<const StorageMaterializedView *>(storage.get()))
@@ -880,7 +880,7 @@ bool InsertDependenciesBuilder::forwardedInsertHidesDependentView(const StorageP
     /// `collectAllDependencies` never sees it. Anything the nested write can reach counts as hidden.
     if (const auto * alias = dynamic_cast<const StorageAlias *>(storage.get()))
     {
-        auto target = alias->tryGetTargetTable();
+        auto target = alias->tryGetTargetTableWithoutAccessCheck();
         return !target || forwardedInsertReachesDependentView(target, depth + 1);
     }
 
@@ -929,7 +929,7 @@ bool InsertDependenciesBuilder::storageForwardsInsertToSeparateContext(const Sto
     /// resolved.
     if (const auto * alias = dynamic_cast<const StorageAlias *>(storage.get()))
     {
-        auto target = alias->tryGetTargetTable();
+        auto target = alias->tryGetTargetTableWithoutAccessCheck();
         return !target || storageForwardsInsertToSeparateContext(target, depth + 1);
     }
     if (const auto * materialized_view = dynamic_cast<const StorageMaterializedView *>(storage.get()))
@@ -991,7 +991,7 @@ bool InsertDependenciesBuilder::forwardedInsertHidesDependentViewForwardingToSep
     /// follow further `Alias` hops of the target chain.
     if (const auto * alias = dynamic_cast<const StorageAlias *>(storage.get()))
     {
-        auto target = alias->tryGetTargetTable();
+        auto target = alias->tryGetTargetTableWithoutAccessCheck();
         if (!target)
             return true;
         return dependentViewForwardsInsertToSeparateContext(target, context, depth + 1)

@@ -47,7 +47,7 @@ namespace DB
         /// An `Alias` whose target was dropped reports no columns instead, so it is not refreshed.
         void refreshExternalMetadata(const StoragePtr & storage, const ContextPtr & context)
         {
-            if (const auto * alias = storage->as<StorageAlias>(); alias && !alias->tryGetTargetTable())
+            if (const auto * alias = storage->as<StorageAlias>(); alias && !alias->tryGetTargetTableWithoutAccessCheck())
                 return;
             resolveStorageProxyLoading(storage)->updateExternalDynamicMetadataIfExists(context);
         }

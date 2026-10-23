@@ -161,6 +161,11 @@ protected:
                     continue;
                 }
 
+                /// Without any grant on the target every column of an alias is filtered out below, so
+                /// skipping here keeps the rows the same and stays off the alias's metadata floor.
+                if (alias && !alias->isTargetTableGranted(context, AccessType::SHOW_TABLES, {}))
+                    continue;
+
                 const auto metadata_snapshot = storage->getInMemoryMetadataPtr(context, false);
                 columns = metadata_snapshot->getColumns();
 

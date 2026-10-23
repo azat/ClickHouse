@@ -1210,7 +1210,7 @@ std::vector<ReadFromMerge::ChildPlan> ReadFromMerge::createChildrenPlans(SelectQ
             {
                 /// An `Alias` reports its target's metadata, so the empty column list belongs to the target.
                 const auto * alias = storage->as<StorageAlias>();
-                const StoragePtr alias_target = alias ? alias->tryGetTargetTable() : nullptr;
+                const StoragePtr alias_target = alias ? alias->tryGetTargetTableWithoutAccessCheck() : nullptr;
                 const IStorage * columns_owner = alias ? alias_target.get() : storage.get();
 
                 /// (Assuming that view has empty list of columns if it's parameterized.)

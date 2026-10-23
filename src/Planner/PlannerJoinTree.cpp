@@ -3623,7 +3623,7 @@ const StorageDistributed * getDistributedStorageFromTableExpression(const QueryT
         if (const auto * proxy = dynamic_cast<const StorageProxy *>(storage.get()))
             storage = proxy->getNested();
         else if (const auto * alias = storage->as<StorageAlias>())
-            storage = alias->tryGetTargetTable();
+            storage = alias->tryGetTargetTableWithoutAccessCheck();
         else if (const auto * materialized_view = storage->as<StorageMaterializedView>())
             storage = materialized_view->tryGetTargetTable();
         else if (const auto * buffer = storage->as<StorageBuffer>())

@@ -1,0 +1,10 @@
+-- the target metadata is out of reach even where the caller forgot to check
+ACCESS_DENIED
+-- and the metadata system tables stay empty instead of failing
+0
+0
+-- stopping merges through the alias does not reach the target
+1
+-- a grant on the target brings the metadata back
+1
+1

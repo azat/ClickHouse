@@ -92,6 +92,11 @@ static void fillDataWithTableColumns(
         return; // table was dropped while acquiring the lock
 
     const auto * alias = table->as<StorageAlias>();
+    /// Without any grant on the target every column of an alias is filtered out below, so returning
+    /// here keeps the completions the same and stays off the alias's metadata floor.
+    if (alias && !alias->isTargetTableGranted(context, AccessType::SHOW_TABLES, {}))
+        return;
+
     const auto snapshot = table->getInMemoryMetadataPtr(context, false);
     const auto & columns = snapshot->getColumns();
     NameSet chain_granted;

@@ -460,7 +460,7 @@ static bool collectDestinationIdentities(const StoragePtr & table, std::unordere
         if (!alias)
             return true;
 
-        storage = alias->tryGetTargetTable();
+        storage = alias->tryGetTargetTableWithoutAccessCheck();
     }
     return false;
 }

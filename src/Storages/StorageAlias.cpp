@@ -32,6 +32,7 @@ namespace Setting
 
 namespace ErrorCodes
 {
+    extern const int ACCESS_DENIED;
     extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
     extern const int BAD_ARGUMENTS;
     extern const int NOT_IMPLEMENTED;
@@ -65,20 +66,22 @@ StorageAlias::StorageAlias(
 
 bool StorageAlias::isMergeTree() const
 {
-    auto target = tryGetTargetTable();
+    auto target = tryGetTargetTableWithoutAccessCheck();
     return target && resolveLazyStandIn(target)->isMergeTree();
 }
 
-StoragePtr StorageAlias::getTargetTable(std::optional<TargetAccess> access_check) const
+StoragePtr StorageAlias::getTargetTable(const TargetAccess & access) const
 {
-    if (access_check)
-    {
-        if (access_check->column_names.empty())
-            access_check->context->checkAccess(access_check->access_type, target_database, target_table);
-        else
-            access_check->context->checkAccess(access_check->access_type, target_database, target_table, access_check->column_names);
-    }
+    if (access.column_names.empty())
+        access.context->checkAccess(access.access_type, target_database, target_table);
+    else
+        access.context->checkAccess(access.access_type, target_database, target_table, access.column_names);
 
+    return getTargetTableWithoutAccessCheck();
+}
+
+StoragePtr StorageAlias::getTargetTableWithoutAccessCheck() const
+{
     return DatabaseCatalog::instance().getTable(StorageID(target_database, target_table), getContext());
 }
 
@@ -125,7 +128,7 @@ NameSet StorageAlias::filterColumnsGrantedThroughChain(
         if (!authorized.emplace(alias->target_database, alias->target_table).second)
             break;
 
-        alias_holder = alias->tryGetTargetTable();
+        alias_holder = alias->tryGetTargetTableWithoutAccessCheck();
         alias = alias_holder ? alias_holder->as<StorageAlias>() : nullptr;
         if (!alias)
             break;
@@ -137,6 +140,26 @@ NameSet StorageAlias::filterColumnsGrantedThroughChain(
 bool StorageAlias::isTargetTableGranted(ContextPtr query_context, AccessType access_type, const String & column_name) const
 {
     return !filterColumnsGrantedThroughChain(query_context, access_type, {column_name}).empty();
+}
+
+StorageMetadataHandle StorageAlias::getInMemoryMetadataPtr(ContextPtr query_context, bool bypass_metadata_cache) const
+{
+    /// Everything the alias reports comes from here, so this is where a user with no grant at all on
+    /// the target is stopped: `SHOW TABLES` is implied by every other grant, and by nothing else.
+    /// A caller that hands the whole definition to the user needs more than this floor.
+    if (!isTargetTableGranted(query_context, AccessType::SHOW_TABLES, {}))
+    {
+        throw Exception(
+            ErrorCodes::ACCESS_DENIED,
+            "Not enough privileges to read the metadata exposed by {}",
+            getStorageID().getNameForLogs());
+    }
+
+    auto target = tryGetTargetTableWithoutAccessCheck();
+    if (!target)
+        return std::make_shared<StorageInMemoryMetadata>();
+
+    return target->getInMemoryMetadataPtr(query_context, bypass_metadata_cache);
 }
 
 /// AliasSink: Writes data to the target table using full INSERT pipeline
@@ -179,7 +202,7 @@ public:
 
     void onStart() override
     {
-        StoragePtr target = storage.getTargetTable();
+        StoragePtr target = storage.getTargetTableWithoutAccessCheck();
 
         std::unique_ptr<ASTInsertQuery> insert = std::make_unique<ASTInsertQuery>();
         insert->table_id = target->getStorageID();
@@ -412,7 +435,7 @@ void StorageAlias::checkAlterPartitionIsPossible(
     const Settings & settings,
     ContextPtr local_context) const
 {
-    auto target_storage = getTargetTable();
+    auto target_storage = getTargetTableWithoutAccessCheck();
     auto target_metadata = target_storage->getInMemoryMetadataPtr(local_context, false);
     target_storage->checkAlterPartitionIsPossible(commands, target_metadata, settings, local_context);
 }
@@ -444,17 +467,17 @@ QueryPipeline StorageAlias::updateLightweight(const MutationCommands & commands,
 
 CancellationCode StorageAlias::killMutation(const String & mutation_id)
 {
-    return getTargetTable()->killMutation(mutation_id);
+    return getTargetTableWithoutAccessCheck()->killMutation(mutation_id);
 }
 
 void StorageAlias::waitForMutation(const String & mutation_id, bool wait_for_another_mutation)
 {
-    getTargetTable()->waitForMutation(mutation_id, wait_for_another_mutation);
+    getTargetTableWithoutAccessCheck()->waitForMutation(mutation_id, wait_for_another_mutation);
 }
 
 void StorageAlias::setMutationCSN(const String & mutation_id, UInt64 csn)
 {
-    getTargetTable()->setMutationCSN(mutation_id, csn);
+    getTargetTableWithoutAccessCheck()->setMutationCSN(mutation_id, csn);
 }
 
 namespace
@@ -492,12 +515,12 @@ std::optional<CheckResult> StorageAlias::checkDataNext(DataValidationTasksPtr & 
 
 CancellationCode StorageAlias::killPartMoveToShard(const UUID & task_uuid)
 {
-    return getTargetTable()->killPartMoveToShard(task_uuid);
+    return getTargetTableWithoutAccessCheck()->killPartMoveToShard(task_uuid);
 }
 
 void StorageAlias::updateExternalDynamicMetadataIfExists(ContextPtr local_context)
 {
-    resolveStorageProxyLoading(getTargetTable())->updateExternalDynamicMetadataIfExists(local_context);
+    resolveStorageProxyLoading(getTargetTableWithoutAccessCheck())->updateExternalDynamicMetadataIfExists(local_context);
 }
 
 std::optional<QueryPipeline> StorageAlias::distributedWrite(const ASTInsertQuery & query, ContextPtr local_context)
@@ -508,16 +531,16 @@ std::optional<QueryPipeline> StorageAlias::distributedWrite(const ASTInsertQuery
 StorageSnapshotPtr StorageAlias::getStorageSnapshot(const StorageMetadataPtr & metadata_snapshot, ContextPtr query_context) const
 {
     /// Bind the target to a named local so that one owning pointer spans both calls, and hand it to the
-    /// snapshot: getTargetTable resolves through DatabaseCatalog and returns a temporary, while our
+    /// snapshot: resolving the target goes through DatabaseCatalog and returns a temporary, while our
     /// caller owns and share-locks this alias rather than the target the snapshot refers to.
-    StoragePtr target = getTargetTable();
+    StoragePtr target = getTargetTableWithoutAccessCheck();
     auto snapshot = target->getStorageSnapshot(metadata_snapshot, query_context);
     return snapshot->withStorageHolder(std::move(target));
 }
 
 StorageSnapshotPtr StorageAlias::getStorageSnapshotWithoutData(const StorageMetadataPtr & metadata_snapshot, ContextPtr query_context) const
 {
-    StoragePtr target = getTargetTable();
+    StoragePtr target = getTargetTableWithoutAccessCheck();
     auto snapshot = target->getStorageSnapshotWithoutData(metadata_snapshot, query_context);
     return snapshot->withStorageHolder(std::move(target));
 }
@@ -540,7 +563,7 @@ bool StorageAlias::supportsTrivialCountOptimization(const StorageSnapshotPtr & s
     if (!has_select_access)
         return false;
 
-    auto target = tryGetTargetTable();
+    auto target = tryGetTargetTableWithoutAccessCheck();
     return target && target->supportsTrivialCountOptimization(storage_snapshot, query_context);
 }
 
@@ -551,7 +574,7 @@ std::optional<UInt64> StorageAlias::totalRows(ContextPtr query_context) const
     if (!isDeclaredTargetGranted(query_context, AccessType::SHOW_TABLES, {}))
         return {};
 
-    auto target = tryGetTargetTable();
+    auto target = tryGetTargetTableWithoutAccessCheck();
     return target ? target->totalRows(query_context) : std::optional<UInt64>{};
 }
 
@@ -560,7 +583,7 @@ std::optional<UInt64> StorageAlias::totalBytes(ContextPtr query_context) const
     if (!isDeclaredTargetGranted(query_context, AccessType::SHOW_TABLES, {}))
         return {};
 
-    auto target = tryGetTargetTable();
+    auto target = tryGetTargetTableWithoutAccessCheck();
     return target ? target->totalBytes(query_context) : std::optional<UInt64>{};
 }
 
@@ -576,7 +599,7 @@ QueryProcessingStage::Enum StorageAlias::getQueryProcessingStage(
     const StorageSnapshotPtr & /* storage_snapshot */,
     SelectQueryInfo & query_info) const
 {
-    auto target_storage = getTargetTable();
+    auto target_storage = getTargetTableWithoutAccessCheck();
     auto target_metadata = target_storage->getInMemoryMetadataPtr(local_context, false);
     auto target_snapshot = target_storage->getStorageSnapshot(target_metadata, local_context);
     return target_storage->getQueryProcessingStage(local_context, to_stage, target_snapshot, query_info);
