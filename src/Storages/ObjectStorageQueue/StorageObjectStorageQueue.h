@@ -185,6 +185,7 @@ private:
     };
     mutable std::mutex streaming_tasks_mutex;
     std::vector<std::unique_ptr<StreamingTask>> streaming_tasks TSA_GUARDED_BY(streaming_tasks_mutex);
+    std::atomic<bool> restarting_streaming_tasks{false};
     std::atomic<size_t> max_files_override{0};
 
     LoggerPtr log;
@@ -226,6 +227,7 @@ private:
     void createStreamingTasks(size_t count);
     /// A subset of logic executed by threadFunc.
     bool streamToViews(size_t streaming_tasks_index, UInt64 cycle_epoch);
+    bool isStreamingCycleCancelled(UInt64 cycle_epoch) const;
     /// Apply after_processing action to successfully processed files.
     void postProcess(
         const StoredObjects & successful_objects,
